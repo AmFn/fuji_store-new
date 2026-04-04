@@ -173,7 +173,7 @@ function isPhotoInFolder(photo: Photo, folder?: Folder | null) {
   return photo.folderId === folder.id;
 }
 
-function convertDbPhotoToPhoto(dbPhoto: any): Photo {
+function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
   const pathParts = dbPhoto.path.split(/[/\\]/);
   const fileName = pathParts[pathParts.length - 1];
   let metadata: any = {};
@@ -181,11 +181,25 @@ function convertDbPhotoToPhoto(dbPhoto: any): Photo {
     metadata = dbPhoto.metadata_json ? JSON.parse(dbPhoto.metadata_json) : {};
   } catch {}
 
+  let thumbnailUrl = '';
+  let previewUrl = '';
+
+  if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash && thumbDir) {
+    const normalizedDir = thumbDir.replace(/\\/g, '/');
+    thumbnailUrl = `file://${normalizedDir}/${dbPhoto.hash}_200.webp`;
+    previewUrl = `file://${normalizedDir}/${dbPhoto.hash}_1920.webp`;
+  } else {
+    const normalizedPath = dbPhoto.path.replace(/\\/g, '/');
+    thumbnailUrl = `file://${normalizedPath}`;
+    previewUrl = `file://${normalizedPath}`;
+  }
+
   return {
     id: String(dbPhoto.id),
     fileName: fileName,
     filePath: dbPhoto.path,
-    thumbnailUrl: '',
+    thumbnailUrl,
+    previewUrl,
     hash: dbPhoto.hash || '',
     cameraModel: metadata.cameraModel || '',
     dateTime: metadata.dateTime || new Date(dbPhoto.created_at).toISOString(),
@@ -237,6 +251,7 @@ export default function App() {
   const PHOTO_PAGE_SIZE = 120;
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [thumbnailDir, setThumbnailDir] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>([
     {
       id: 'r1',
@@ -410,12 +425,14 @@ export default function App() {
     const loadData = async () => {
       if (window.electronAPI) {
         try {
-          const [photosPageData, foldersData, tagsData] = await Promise.all([
+          const [thumbDir, photosPageData, foldersData, tagsData] = await Promise.all([
+            window.electronAPI.getThumbnailDir(),
             window.electronAPI.getPhotosPage(1, PHOTO_PAGE_SIZE),
             window.electronAPI.getAllFolders(),
             window.electronAPI.getAllTags()
           ]);
-          const firstItems = (photosPageData?.items || []).map(convertDbPhotoToPhoto);
+          setThumbnailDir(thumbDir);
+          const firstItems = (photosPageData?.items || []).map(p => convertDbPhotoToPhoto(p, thumbDir));
           setPhotos(firstItems);
           setPhotoPage(1);
           const totalPages = photosPageData?.totalPages || 1;
@@ -450,7 +467,7 @@ export default function App() {
       setLoadingMorePhotos(true);
       const nextPage = photoPage + 1;
       const pageData = await window.electronAPI.getPhotosPage(nextPage, PHOTO_PAGE_SIZE);
-      const nextItems = (pageData?.items || []).map(convertDbPhotoToPhoto);
+      const nextItems = (pageData?.items || []).map(p => convertDbPhotoToPhoto(p, thumbnailDir));
       if (nextItems.length > 0) {
         setPhotos(prev => [...prev, ...nextItems]);
       }
@@ -1531,45 +1548,8 @@ function NavItem({ icon, label, active, onClick, theme }: { icon: React.ReactNod
   );
 }
 
-function toFileUrl(filePath: string): string {
-  if (!filePath) return '';
-  const normalized = filePath.replace(/\\/g, '/');
-  return `local://${normalized}`;
-}
-
 function ThumbImage({ photo, className, alt }: { photo: Photo, className?: string, alt?: string }) {
-  const [src, setSrc] = useState(photo.thumbnailUrl || toFileUrl(photo.filePath));
-
-  useEffect(() => {
-    let disposed = false;
-    const load = async () => {
-      if (!window.electronAPI?.getThumbnail) {
-        setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
-        return;
-      }
-      if (!photo.hash) {
-        setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
-        return;
-      }
-      try {
-        const res = await window.electronAPI.getThumbnail(photo.filePath, photo.hash);
-        if (disposed) return;
-        if (res?.success && res.thumbnailPath) {
-          setSrc(toFileUrl(res.thumbnailPath));
-        } else {
-          setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
-        }
-      } catch {
-        if (!disposed) setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
-      }
-    };
-    void load();
-    return () => {
-      disposed = true;
-    };
-  }, [photo.filePath, photo.hash, photo.thumbnailUrl]);
-
-  return <img src={src} className={className} alt={alt || photo.fileName} loading="lazy" />;
+  return <img src={photo.thumbnailUrl} className={className} alt={alt || photo.fileName} loading="lazy" />;
 }
 
 const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, onDeletePhoto }: { photo: Photo, mode: 'grid' | 'list', onClick: () => void, theme: string, onToggleFavorite: (id: string) => void, onDeletePhoto: (id: string) => void }) => {

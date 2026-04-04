@@ -1,37 +1,12 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const fsSync = require('node:fs');
 const crypto = require('node:crypto');
 
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow;
 let libraryManager;
 let thumbnailCacheDir = '';
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'local',
-    privileges: {
-      secure: true,
-      standard: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-    },
-  },
-]);
-
-function registerLocalProtocol() {
-  protocol.handle('local', (request) => {
-    const url = request.url.slice(8);
-    try {
-      const decodedPath = decodeURIComponent(url);
-      return fsSync.createReadStream(decodedPath);
-    } catch (error) {
-      return new Response('Not found', { status: 404 });
-    }
-  });
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -95,8 +70,6 @@ async function scanFilesDirect(filePaths) {
 }
 
 app.whenReady().then(async () => {
-  registerLocalProtocol();
-
   try {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
