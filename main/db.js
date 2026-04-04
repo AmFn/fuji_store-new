@@ -1,0 +1,615 @@
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import Database from 'better-sqlite3';
+
+const DEFAULT_PAGE_SIZE = 120;
+const MAX_PAGE_SIZE = 1000;
+const SORTABLE_FIELDS = new Set(['created_at', 'updated_at', 'size', 'path', 'id']);
+
+function normalizePath(inputPath) {
+  const normalized = path.normalize(inputPath).replace(/\\/g, '/');
+  if (process.platform === 'win32') {
+    return normalized.toLowerCase();
+  }
+  return normalized;
+}
+
+function toIntBool(value) {
+  return value ? 1 : 0;
+}
+
+function normalizePhotoRecord(photo) {
+  const now = Date.now();
+  return {
+    path: normalizePath(photo.path),
+    hash: photo.hash ?? '',
+    size: Number(photo.size ?? 0),
+    width: Number(photo.width ?? 0),
+    height: Number(photo.height ?? 0),
+    created_at: Number(photo.created_at ?? now),
+    updated_at: Number(photo.updated_at ?? now),
+    thumbnail_status: photo.thumbnail_status ?? 'pending',
+    deleted: toIntBool(photo.deleted),
+  };
+}
+
+export class PhotoDatabase {
+  static async create(dbPath) {
+    await fs.mkdir(path.dirname(dbPath), { recursive: true });
+    const instance = new PhotoDatabase(dbPath);
+    instance.#init();
+    return instance;
+  }
+
+  constructor(dbPath) {
+    this.dbPath = dbPath;
+    this.db = new Database(dbPath);
+    this.stmts = {};
+  }
+
+  #init() {
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('cache_size = -64000');
+    this.db.pragma('temp_store = memory');
+    this.db.pragma('mmap_size = 268435456');
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS photos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        path TEXT NOT NULL UNIQUE,
+        hash TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        width INTEGER NOT NULL DEFAULT 0,
+        height INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        thumbnail_status TEXT NOT NULL DEFAULT 'pending',
+        deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1))
+      );
+
+      CREATE TABLE IF NOT EXISTS folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        path TEXT,
+        parent_id INTEGER,
+        folder_type TEXT NOT NULL DEFAULT 'logical' CHECK (folder_type IN ('physical', 'logical')),
+        include_subfolders INTEGER NOT NULL DEFAULT 1 CHECK (include_subfolders IN (0, 1)),
+        photo_count INTEGER NOT NULL DEFAULT 0,
+        last_synced INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+    `);
+
+    this.#migrateLegacySchema();
+    this.#detectCompatibility();
+    this.#ensureIndexes();
+
+    this.stmts.upsertPhoto = this.db.prepare(`
+      INSERT INTO photos (
+        path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+      ) VALUES (
+        @path, @hash, @size, @width, @height, @created_at, @updated_at, @thumbnail_status, @deleted
+      )
+      ON CONFLICT(path) DO UPDATE SET
+        hash = excluded.hash,
+        size = excluded.size,
+        width = excluded.width,
+        height = excluded.height,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        thumbnail_status = excluded.thumbnail_status,
+        deleted = excluded.deleted
+    `);
+
+    this.stmts.getPhotoByPath = this.db.prepare(`
+      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+      FROM photos
+      WHERE path = ?
+      LIMIT 1
+    `);
+
+    this.stmts.getPhotoByPaths = this.db.prepare(`
+      SELECT path, hash, size, updated_at, deleted
+      FROM photos
+      WHERE path IN (SELECT value FROM json_each(?))
+    `);
+
+    this.stmts.getPhotos = this.db.prepare(`
+      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+      FROM photos
+      WHERE deleted = @deleted
+      ORDER BY __ORDER_FIELD__ __ORDER_DIRECTION__
+      LIMIT @limit OFFSET @offset
+    `);
+
+    this.stmts.countPhotos = this.db.prepare(`
+      SELECT COUNT(*) AS total
+      FROM photos
+      WHERE deleted = ?
+    `);
+
+    this.stmts.markDeleted = this.db.prepare(`
+      UPDATE photos
+      SET deleted = 1, updated_at = @updatedAt
+      WHERE path = @path
+    `);
+
+    this.stmts.markAllDeletedByPaths = this.db.prepare(`
+      UPDATE photos
+      SET deleted = 1, updated_at = @updatedAt
+      WHERE path IN (SELECT value FROM json_each(@pathsJson))
+    `);
+
+    this.stmts.updatePhotoByPath = this.db.prepare(`
+      UPDATE photos
+      SET
+        hash = COALESCE(@hash, hash),
+        size = COALESCE(@size, size),
+        width = COALESCE(@width, width),
+        height = COALESCE(@height, height),
+        created_at = COALESCE(@created_at, created_at),
+        updated_at = COALESCE(@updated_at, updated_at),
+        thumbnail_status = COALESCE(@thumbnail_status, thumbnail_status),
+        deleted = COALESCE(@deleted, deleted)
+      WHERE path = @path
+    `);
+
+    this.stmts.updateThumbnailStatus = this.db.prepare(`
+      UPDATE photos
+      SET thumbnail_status = @status, updated_at = @updatedAt
+      WHERE path = @path
+    `);
+
+    this.stmts.getAllActivePaths = this.db.prepare(`
+      SELECT path
+      FROM photos
+      WHERE deleted = 0
+    `);
+
+    this.stmts.getRowsMissingOnDisk = this.db.prepare(`
+      SELECT id, path
+      FROM photos
+      WHERE deleted = 0
+    `);
+
+    this.stmts.getTimelineGroupPage = this.db.prepare(`
+      SELECT
+        strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key,
+        MAX(created_at) AS latest_created_at,
+        COUNT(*) AS photo_count
+      FROM photos
+      WHERE deleted = 0
+      GROUP BY day_key
+      ORDER BY latest_created_at DESC
+      LIMIT ? OFFSET ?
+    `);
+
+    this.stmts.countTimelineGroups = this.db.prepare(`
+      SELECT COUNT(*) AS total
+      FROM (
+        SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
+        FROM photos
+        WHERE deleted = 0
+        GROUP BY day_key
+      )
+    `);
+
+    this.stmts.getPhotosByDay = this.db.prepare(`
+      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+      FROM photos
+      WHERE deleted = 0
+        AND strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') = @dayKey
+      ORDER BY created_at DESC
+      LIMIT @limit OFFSET @offset
+    `);
+
+    this.stmts.countPhotosByDay = this.db.prepare(`
+      SELECT COUNT(*) AS total
+      FROM photos
+      WHERE deleted = 0
+        AND strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') = ?
+    `);
+
+    this.stmts.insertFolder = this.db.prepare(`
+      INSERT INTO folders (
+        name, path, parent_id, folder_type, include_subfolders, photo_count, last_synced, created_at, updated_at
+      )
+      VALUES (
+        @name, @path, @parent_id, @folder_type, @include_subfolders, @photo_count, @last_synced, @created_at, @updated_at
+      )
+    `);
+
+    this.stmts.updateFolder = this.db.prepare(`
+      UPDATE folders
+      SET
+        name = COALESCE(@name, name),
+        path = COALESCE(@path, path),
+        parent_id = COALESCE(@parent_id, parent_id),
+        folder_type = COALESCE(@folder_type, folder_type),
+        include_subfolders = COALESCE(@include_subfolders, include_subfolders),
+        photo_count = COALESCE(@photo_count, photo_count),
+        last_synced = COALESCE(@last_synced, last_synced),
+        updated_at = @updated_at
+      WHERE id = @id
+    `);
+
+    this.stmts.deleteFolder = this.db.prepare(`
+      DELETE FROM folders WHERE id = ?
+    `);
+
+    this.stmts.getAllFolders = this.db.prepare(`
+      SELECT
+        id, name, path, parent_id, folder_type, include_subfolders, photo_count, last_synced, created_at, updated_at
+      FROM folders
+      ORDER BY id ASC
+    `);
+  }
+
+  #detectCompatibility() {
+    const photoCols = this.db.prepare("PRAGMA table_info(photos)").all();
+    const set = new Set(photoCols.map((c) => c.name));
+    this.compat = {
+      hasTagsJson: set.has('tags_json'),
+      hasMetadataJson: set.has('metadata_json'),
+      hasFavorite: set.has('is_favorite'),
+      hasHidden: set.has('is_hidden'),
+      hasRating: set.has('rating'),
+    };
+  }
+
+  #ensureIndexes() {
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_photos_path ON photos(path);
+      CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(hash);
+      CREATE INDEX IF NOT EXISTS idx_photos_updated_at ON photos(updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_photos_deleted ON photos(deleted);
+    `);
+
+    const folderCols = this.db.prepare("PRAGMA table_info(folders)").all();
+    const folderSet = new Set(folderCols.map((c) => c.name));
+    if (folderSet.has('folder_type')) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_folders_type ON folders(folder_type)');
+    }
+    if (folderSet.has('parent_id')) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)');
+    }
+    if (folderSet.has('path')) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path)');
+    }
+  }
+
+  #migrateLegacySchema() {
+    const photoCols = this.db.prepare("PRAGMA table_info(photos)").all();
+    const photoSet = new Set(photoCols.map((c) => c.name));
+
+    if (!photoSet.has('deleted')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0');
+      if (photoSet.has('is_deleted')) {
+        this.db.exec('UPDATE photos SET deleted = COALESCE(is_deleted, 0)');
+      }
+    }
+    if (!photoSet.has('thumbnail_status')) {
+      this.db.exec("ALTER TABLE photos ADD COLUMN thumbnail_status TEXT NOT NULL DEFAULT 'pending'");
+    }
+    if (!photoSet.has('tags_json')) {
+      this.db.exec("ALTER TABLE photos ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!photoSet.has('metadata_json')) {
+      this.db.exec("ALTER TABLE photos ADD COLUMN metadata_json TEXT DEFAULT '{}'");
+    }
+    if (!photoSet.has('is_favorite')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!photoSet.has('is_hidden')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!photoSet.has('rating')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!photoSet.has('width')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN width INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!photoSet.has('height')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN height INTEGER NOT NULL DEFAULT 0');
+    }
+
+    const folderCols = this.db.prepare("PRAGMA table_info(folders)").all();
+    const folderSet = new Set(folderCols.map((c) => c.name));
+    if (folderSet.size > 0) {
+      if (!folderSet.has('folder_type')) {
+        this.db.exec("ALTER TABLE folders ADD COLUMN folder_type TEXT NOT NULL DEFAULT 'logical'");
+        if (folderSet.has('path')) {
+          this.db.exec("UPDATE folders SET folder_type = CASE WHEN path IS NULL OR path = '' THEN 'logical' ELSE 'physical' END");
+        }
+      }
+      if (!folderSet.has('include_subfolders')) {
+        this.db.exec('ALTER TABLE folders ADD COLUMN include_subfolders INTEGER NOT NULL DEFAULT 1');
+      }
+      if (!folderSet.has('photo_count')) {
+        this.db.exec('ALTER TABLE folders ADD COLUMN photo_count INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!folderSet.has('last_synced')) {
+        this.db.exec('ALTER TABLE folders ADD COLUMN last_synced INTEGER');
+      }
+      if (!folderSet.has('created_at')) {
+        this.db.exec(`ALTER TABLE folders ADD COLUMN created_at INTEGER NOT NULL DEFAULT ${Date.now()}`);
+      }
+      if (!folderSet.has('updated_at')) {
+        this.db.exec(`ALTER TABLE folders ADD COLUMN updated_at INTEGER NOT NULL DEFAULT ${Date.now()}`);
+      }
+    }
+  }
+
+  async upsertPhoto(photo) {
+    const payload = normalizePhotoRecord(photo);
+    this.stmts.upsertPhoto.run(payload);
+    return payload.path;
+  }
+
+  async upsertPhotosBatch(photos) {
+    if (!Array.isArray(photos) || photos.length === 0) {
+      return 0;
+    }
+
+    const write = this.db.transaction((items) => {
+      for (const item of items) {
+        this.stmts.upsertPhoto.run(normalizePhotoRecord(item));
+      }
+      return items.length;
+    });
+
+    return write(photos);
+  }
+
+  async getPhotoByPath(filePath) {
+    return this.stmts.getPhotoByPath.get(normalizePath(filePath)) ?? null;
+  }
+
+  async getPhotoSignaturesByPaths(paths) {
+    if (!Array.isArray(paths) || paths.length === 0) {
+      return new Map();
+    }
+
+    const normalizedPaths = paths.map(normalizePath);
+    const rows = this.stmts.getPhotoByPaths.all(JSON.stringify(normalizedPaths));
+    const map = new Map();
+    for (const row of rows) {
+      map.set(row.path, row);
+    }
+    return map;
+  }
+
+  async getPhotos(page = 1, pageSize = DEFAULT_PAGE_SIZE, options = {}) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE));
+    const includeDeleted = Boolean(options.includeDeleted);
+    const sortBy = SORTABLE_FIELDS.has(options.sortBy) ? options.sortBy : 'created_at';
+    const sortDirection = String(options.sortDirection || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const sql = this.stmts.getPhotos.source
+      .replace('__ORDER_FIELD__', sortBy)
+      .replace('__ORDER_DIRECTION__', sortDirection);
+    const stmt = this.db.prepare(sql);
+
+    const rows = stmt.all({
+      deleted: includeDeleted ? 1 : 0,
+      limit: safePageSize,
+      offset: (safePage - 1) * safePageSize,
+    });
+    const total = this.stmts.countPhotos.get(includeDeleted ? 1 : 0)?.total ?? 0;
+
+    return {
+      page: safePage,
+      pageSize: safePageSize,
+      total,
+      totalPages: Math.ceil(total / safePageSize),
+      items: rows,
+    };
+  }
+
+  async markPhotoDeleted(filePath) {
+    const result = this.stmts.markDeleted.run({
+      updatedAt: Date.now(),
+      path: normalizePath(filePath),
+    });
+    return result.changes;
+  }
+
+  async markPhotosDeleted(paths) {
+    if (!Array.isArray(paths) || paths.length === 0) {
+      return 0;
+    }
+    const normalizedPaths = paths.map(normalizePath);
+    const result = this.stmts.markAllDeletedByPaths.run({
+      updatedAt: Date.now(),
+      pathsJson: JSON.stringify(normalizedPaths),
+    });
+    return result.changes;
+  }
+
+  async getAllActivePaths() {
+    return this.stmts.getAllActivePaths.all().map((row) => row.path);
+  }
+
+  async getRowsForDiskValidation() {
+    return this.stmts.getRowsMissingOnDisk.all();
+  }
+
+  async getTimelineGroups(page = 1, pageSize = 90) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(500, Math.max(1, Number(pageSize) || 90));
+    const offset = (safePage - 1) * safePageSize;
+    const rows = this.stmts.getTimelineGroupPage.all(safePageSize, offset);
+    const total = this.stmts.countTimelineGroups.get()?.total ?? 0;
+    return {
+      page: safePage,
+      pageSize: safePageSize,
+      total,
+      totalPages: Math.ceil(total / safePageSize),
+      items: rows,
+    };
+  }
+
+  async getTimelinePhotosByDay(dayKey, page = 1, pageSize = 80) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(500, Math.max(1, Number(pageSize) || 80));
+    const offset = (safePage - 1) * safePageSize;
+    const rows = this.stmts.getPhotosByDay.all({
+      dayKey,
+      limit: safePageSize,
+      offset,
+    });
+    const total = this.stmts.countPhotosByDay.get(dayKey)?.total ?? 0;
+    return {
+      dayKey,
+      page: safePage,
+      pageSize: safePageSize,
+      total,
+      totalPages: Math.ceil(total / safePageSize),
+      items: rows,
+    };
+  }
+
+  async createFolder(folder) {
+    const now = Date.now();
+    const folderType = folder.folder_type || folder.type || (folder.path ? 'physical' : 'logical');
+    const payload = {
+      name: folder.name,
+      path: folder.path ? normalizePath(folder.path) : null,
+      parent_id: folder.parent_id ?? folder.parentId ?? null,
+      folder_type: folderType,
+      include_subfolders: folder.include_subfolders === undefined
+        ? toIntBool(folder.includeSubfolders ?? true)
+        : toIntBool(folder.include_subfolders),
+      photo_count: Number(folder.photo_count ?? folder.photoCount ?? 0),
+      last_synced: folder.last_synced ?? folder.lastSynced ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    const result = this.stmts.insertFolder.run(payload);
+    return Number(result.lastInsertRowid);
+  }
+
+  async updateFolder(folder) {
+    const payload = {
+      id: Number(folder.id),
+      name: folder.name ?? null,
+      path: folder.path ? normalizePath(folder.path) : null,
+      parent_id: folder.parent_id ?? folder.parentId ?? null,
+      folder_type: folder.folder_type ?? folder.type ?? null,
+      include_subfolders: folder.include_subfolders === undefined && folder.includeSubfolders === undefined
+        ? null
+        : toIntBool(folder.include_subfolders ?? folder.includeSubfolders),
+      photo_count: folder.photo_count ?? folder.photoCount ?? null,
+      last_synced: folder.last_synced ?? folder.lastSynced ?? null,
+      updated_at: Date.now(),
+    };
+    const result = this.stmts.updateFolder.run(payload);
+    return result.changes;
+  }
+
+  async deleteFolder(folderId) {
+    const result = this.stmts.deleteFolder.run(Number(folderId));
+    return result.changes;
+  }
+
+  async getAllFolders() {
+    return this.stmts.getAllFolders.all();
+  }
+
+  async updatePhotoByPath(filePath, patch) {
+    const payload = {
+      path: normalizePath(filePath),
+      hash: patch.hash ?? null,
+      size: patch.size ?? null,
+      width: patch.width ?? null,
+      height: patch.height ?? null,
+      created_at: patch.created_at ?? null,
+      updated_at: patch.updated_at ?? Date.now(),
+      thumbnail_status: patch.thumbnail_status ?? null,
+      deleted: patch.deleted === undefined ? null : toIntBool(patch.deleted),
+    };
+    const result = this.stmts.updatePhotoByPath.run(payload);
+    return result.changes;
+  }
+
+  async updateThumbnailStatus(filePath, status) {
+    const result = this.stmts.updateThumbnailStatus.run({
+      path: normalizePath(filePath),
+      status,
+      updatedAt: Date.now(),
+    });
+    return result.changes;
+  }
+
+  async updatePhotoMetadata(filePath, patch) {
+    const normalized = normalizePath(filePath);
+    const parts = [];
+    const params = { path: normalized, updated_at: Date.now() };
+
+    if (this.compat.hasFavorite && patch.isFavorite !== undefined) {
+      parts.push('is_favorite = @is_favorite');
+      params.is_favorite = toIntBool(patch.isFavorite);
+    }
+    if (this.compat.hasHidden && patch.isHidden !== undefined) {
+      parts.push('is_hidden = @is_hidden');
+      params.is_hidden = toIntBool(patch.isHidden);
+    }
+    if (this.compat.hasRating && patch.rating !== undefined) {
+      parts.push('rating = @rating');
+      params.rating = Number(patch.rating || 0);
+    }
+    if (this.compat.hasTagsJson && patch.tags !== undefined) {
+      parts.push('tags_json = @tags_json');
+      params.tags_json = JSON.stringify(Array.isArray(patch.tags) ? patch.tags : []);
+    }
+
+    parts.push('updated_at = @updated_at');
+    const sql = `UPDATE photos SET ${parts.join(', ')} WHERE path = @path`;
+    const result = this.db.prepare(sql).run(params);
+    return result.changes;
+  }
+
+  async markPhotoDeletedById(id) {
+    const result = this.db.prepare('UPDATE photos SET deleted = 1, updated_at = ? WHERE id = ?').run(Date.now(), Number(id));
+    return result.changes;
+  }
+
+  async restorePhotoByPath(filePath) {
+    const result = this.db.prepare('UPDATE photos SET deleted = 0, updated_at = ? WHERE path = ?').run(Date.now(), normalizePath(filePath));
+    return result.changes;
+  }
+
+  async getPhotoById(id) {
+    return this.db.prepare('SELECT * FROM photos WHERE id = ? LIMIT 1').get(Number(id)) ?? null;
+  }
+
+  async getAllTags() {
+    if (!this.compat.hasTagsJson) return [];
+    const rows = this.db.prepare("SELECT tags_json FROM photos WHERE tags_json IS NOT NULL AND tags_json != '[]'").all();
+    const set = new Set();
+    for (const row of rows) {
+      try {
+        const tags = JSON.parse(row.tags_json || '[]');
+        if (Array.isArray(tags)) {
+          for (const t of tags) {
+            if (typeof t === 'string' && t.trim()) set.add(t.trim());
+          }
+        }
+      } catch {
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }
+
+  close() {
+    this.db.close();
+  }
+}
+
+export { normalizePath };
