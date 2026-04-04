@@ -1531,30 +1531,36 @@ function NavItem({ icon, label, active, onClick, theme }: { icon: React.ReactNod
   );
 }
 
+function toFileUrl(filePath: string): string {
+  if (!filePath) return '';
+  const normalized = filePath.replace(/\\/g, '/');
+  return `local://${normalized}`;
+}
+
 function ThumbImage({ photo, className, alt }: { photo: Photo, className?: string, alt?: string }) {
-  const [src, setSrc] = useState(photo.thumbnailUrl || `file://${photo.filePath}`);
+  const [src, setSrc] = useState(photo.thumbnailUrl || toFileUrl(photo.filePath));
 
   useEffect(() => {
     let disposed = false;
     const load = async () => {
       if (!window.electronAPI?.getThumbnail) {
-        setSrc(photo.thumbnailUrl || `file://${photo.filePath}`);
+        setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
         return;
       }
       if (!photo.hash) {
-        setSrc(photo.thumbnailUrl || `file://${photo.filePath}`);
+        setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
         return;
       }
       try {
         const res = await window.electronAPI.getThumbnail(photo.filePath, photo.hash);
         if (disposed) return;
         if (res?.success && res.thumbnailPath) {
-          setSrc(`file://${res.thumbnailPath}`);
+          setSrc(toFileUrl(res.thumbnailPath));
         } else {
-          setSrc(photo.thumbnailUrl || `file://${photo.filePath}`);
+          setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
         }
       } catch {
-        if (!disposed) setSrc(photo.thumbnailUrl || `file://${photo.filePath}`);
+        if (!disposed) setSrc(photo.thumbnailUrl || toFileUrl(photo.filePath));
       }
     };
     void load();

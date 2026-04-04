@@ -118,13 +118,13 @@ export class PhotoDatabase {
       WHERE path IN (SELECT value FROM json_each(?))
     `);
 
-    this.stmts.getPhotos = this.db.prepare(`
+    this.stmts.getPhotosSql = `
       SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
       FROM photos
       WHERE deleted = @deleted
       ORDER BY __ORDER_FIELD__ __ORDER_DIRECTION__
       LIMIT @limit OFFSET @offset
-    `);
+    `;
 
     this.stmts.countPhotos = this.db.prepare(`
       SELECT COUNT(*) AS total
@@ -391,7 +391,7 @@ export class PhotoDatabase {
     const sortBy = SORTABLE_FIELDS.has(options.sortBy) ? options.sortBy : 'created_at';
     const sortDirection = String(options.sortDirection || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    const sql = this.stmts.getPhotos.source
+    const sql = this.stmts.getPhotosSql
       .replace('__ORDER_FIELD__', sortBy)
       .replace('__ORDER_DIRECTION__', sortDirection);
     const stmt = this.db.prepare(sql);
