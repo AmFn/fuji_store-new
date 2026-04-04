@@ -173,6 +173,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:get-watched-folders', async () => ({
     watchedPaths: libraryManager.watcher.getWatchedDirectories(),
   }));
+  ipcMain.handle('library:get-thumbnail', async (_e, { photoPath, hash }) => {
+    return libraryManager.getThumbnail(photoPath, hash);
+  });
   ipcMain.handle('library:update-photo', async (_e, { photoPath, patch }) => {
     await libraryManager.db.updatePhotoMetadata(photoPath, patch || {});
     return { success: true };

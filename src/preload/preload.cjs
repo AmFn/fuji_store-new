@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resyncLibraryV2: () =>
     ipcRenderer.invoke('resyncLibrary').catch(() => ipcRenderer.invoke('library:resync')),
   getThumbnail: (photoPath, hash) =>
-    ipcRenderer.invoke('getThumbnail', photoPath, hash).catch(() => ({
+    ipcRenderer.invoke('library:get-thumbnail', { photoPath, hash }).catch(() => ({
       success: true,
       thumbnailPath: photoPath,
       status: 'done',
