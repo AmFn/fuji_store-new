@@ -9,14 +9,26 @@ let mainWindow;
 let libraryManager;
 let thumbnailCacheDir = '';
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local',
+    privileges: {
+      secure: true,
+      standard: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
 function registerLocalProtocol() {
-  protocol.registerFileProtocol('local', (request, callback) => {
+  protocol.handle('local', (request) => {
     const url = request.url.slice(8);
     try {
       const decodedPath = decodeURIComponent(url);
-      callback(decodedPath);
+      return fsSync.createReadStream(decodedPath);
     } catch (error) {
-      callback({ error: -2 });
+      return new Response('Not found', { status: 404 });
     }
   });
 }
