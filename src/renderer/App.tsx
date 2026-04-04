@@ -176,18 +176,14 @@ function isPhotoInFolder(photo: Photo, folder?: Folder | null) {
 function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
   const pathParts = dbPhoto.path.split(/[/\\]/);
   const fileName = pathParts[pathParts.length - 1];
-  let metadata: any = {};
-  try {
-    metadata = dbPhoto.metadata_json ? JSON.parse(dbPhoto.metadata_json) : {};
-  } catch {}
 
   let thumbnailUrl = '';
   let previewUrl = '';
 
   if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash && thumbDir) {
     const normalizedDir = thumbDir.replace(/\\/g, '/');
-    thumbnailUrl = `file://${normalizedDir}/${dbPhoto.hash}_200.webp`;
-    previewUrl = `file://${normalizedDir}/${dbPhoto.hash}_1920.webp`;
+    thumbnailUrl = `file://${normalizedDir}/${dbPhoto.hash}.jpg`;
+    previewUrl = `file://${dbPhoto.path.replace(/\\/g, '/')}`;
   } else {
     const normalizedPath = dbPhoto.path.replace(/\\/g, '/');
     thumbnailUrl = `file://${normalizedPath}`;
@@ -201,13 +197,13 @@ function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
     thumbnailUrl,
     previewUrl,
     hash: dbPhoto.hash || '',
-    cameraModel: metadata.cameraModel || '',
-    dateTime: metadata.dateTime || new Date(dbPhoto.created_at).toISOString(),
-    filmMode: metadata.filmMode || '',
-    isFavorite: Boolean(dbPhoto.is_favorite),
-    isHidden: Boolean(dbPhoto.is_hidden),
-    rating: dbPhoto.rating || 0,
-    tags: dbPhoto.tags_json ? JSON.parse(dbPhoto.tags_json) : [],
+    cameraModel: '',
+    dateTime: new Date(dbPhoto.created_at).toISOString(),
+    filmMode: '',
+    isFavorite: false,
+    isHidden: false,
+    rating: 0,
+    tags: [],
     ownerId: 'local'
   };
 }
