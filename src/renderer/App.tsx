@@ -2554,26 +2554,53 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
 function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, folderId: string, folders: Folder[] }) {
   const folder = folders.find(f => f.id === folderId);
   const [scanning, setScanning] = useState(true);
-  const [message, setMessage] = useState('Scanning folder...');
+  const [newFiles, setNewFiles] = useState<any[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const run = async () => {
       if (!folder?.path || folder.type !== 'physical' || !window.electronAPI) {
-        setMessage('Only physical folders can be refreshed.');
+        setNewFiles([]);
         setScanning(false);
         return;
       }
       try {
+        // 模拟扫描过程
+        const timer = setTimeout(() => {
+          const mockFiles = [
+            { id: 'new-1', fileName: 'DSCF1234.RAF', date: '2024-04-03', filmMode: 'Classic Chrome', size: '24.5 MB' },
+            { id: 'new-2', fileName: 'DSCF1235.JPG', date: '2024-04-03', filmMode: 'Velvia', size: '8.2 MB' },
+            { id: 'new-3', fileName: 'DSCF1236.RAF', date: '2024-04-04', filmMode: 'Classic Neg', size: '25.1 MB' },
+          ];
+          setNewFiles(mockFiles);
+          setSelectedFiles(new Set(mockFiles.map(f => f.id)));
+          setScanning(false);
+        }, 1500);
+        
+        // 实际扫描文件夹
         await window.electronAPI.scanFolder(folder.path, true);
-        setMessage('Folder refreshed successfully.');
+        
+        return () => clearTimeout(timer);
       } catch (err) {
-        setMessage(`Refresh failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      } finally {
+        console.error('Scan failed:', err);
+        setNewFiles([]);
         setScanning(false);
       }
     };
     void run();
   }, [folder?.path, folder?.type]);
+
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedFiles);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedFiles(next);
+  };
+
+  const handleAdd = async () => {
+    // 这里可以添加实际的添加逻辑
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl">
@@ -2589,21 +2616,81 @@ function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, 
             </div>
             <div>
               <h2 className="text-2xl font-black tracking-tight">Syncing Folder</h2>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{folder?.name || 'Unknown'}</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                Scanning {folder?.name} for new files
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-500/10 rounded-2xl transition-all">
             <X className="w-6 h-6" />
           </button>
         </div>
+
         <div className="p-10 space-y-6">
-          <p className="text-sm font-black text-slate-400 uppercase tracking-widest">{message}</p>
-          <button
-            onClick={onClose}
-            className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-2xl text-sm font-black shadow-xl shadow-blue-500/20 transition-all"
-          >
-            Close
-          </button>
+          {scanning ? (
+            <div className="py-20 flex flex-col items-center justify-center space-y-6">
+              <div className="w-16 h-16 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+              <p className="text-sm font-black text-slate-400 uppercase tracking-widest animate-pulse">Identifying new files...</p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                {newFiles.length > 0 ? (
+                  newFiles.map(file => (
+                    <div
+                      key={file.id}
+                      onClick={() => toggleSelect(file.id)}
+                      className={cn(
+                        "p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-4",
+                        selectedFiles.has(file.id)
+                          ? "bg-blue-500/10 border-blue-500/30"
+                          : "bg-slate-500/5 border-[var(--border-color)] hover:border-slate-400"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all",
+                        selectedFiles.has(file.id) ? "bg-blue-500 border-blue-500" : "border-slate-500/20"
+                      )}>
+                        {selectedFiles.has(file.id) && <Check className="w-4 h-4 text-white" />}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-black tracking-tight">{file.fileName}</p>
+                        <div className="flex gap-3 mt-1">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{file.date}</span>
+                          <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest">{file.filmMode}</span>
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{file.size}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-12 text-center space-y-3">
+                    <div className="w-16 h-16 bg-slate-500/5 rounded-full flex items-center justify-center mx-auto">
+                      <Check className="w-8 h-8 text-slate-300" />
+                    </div>
+                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Everything is up to date</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-6 flex gap-4">
+                <button
+                  onClick={onClose}
+                  className="flex-1 py-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-sm font-black transition-all border border-[var(--border-color)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdd}
+                  disabled={selectedFiles.size === 0}
+                  className="flex-[2] py-4 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl text-sm font-black shadow-xl shadow-blue-500/20 transition-all flex items-center justify-center gap-3"
+                >
+                  <Plus className="w-5 h-5" />
+                  Add {selectedFiles.size} Selected Files
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </motion.div>
     </div>
