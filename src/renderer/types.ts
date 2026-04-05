@@ -102,6 +102,7 @@ export interface Folder {
   type: 'physical' | 'logical';
   includeSubfolders: boolean;
   photoCount: number;
+  sortOrder?: number;
   lastSynced?: string;
   parentId?: string;
 }

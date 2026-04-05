@@ -15,6 +15,7 @@ const mockFolders: Folder[] = [
     id: '1',
     name: 'My Photos',
     parentId: null,
+    sortOrder: 1,
     path: null,
     type: 'logical',
     includeSubfolders: true,
@@ -25,6 +26,7 @@ const mockFolders: Folder[] = [
     id: '2',
     name: 'Portraits',
     parentId: '1',
+    sortOrder: 1,
     path: null,
     type: 'logical',
     includeSubfolders: false,
@@ -35,6 +37,7 @@ const mockFolders: Folder[] = [
     id: '3',
     name: 'Landscapes',
     parentId: '1',
+    sortOrder: 2,
     path: null,
     type: 'logical',
     includeSubfolders: false,
@@ -85,8 +88,9 @@ export const folderService = {
    */
   async loadAllFolders() {
     try {
-      if (window.electronAPI?.getAllFolders) {
-        const foldersData = await window.electronAPI.getAllFolders();
+      if (window.electronAPI?.['library:get-all-folders-v2'] || window.electronAPI?.getAllFolders) {
+        const loadFn = window.electronAPI?.['library:get-all-folders-v2'] || window.electronAPI?.getAllFolders;
+        const foldersData = await loadFn();
         return (foldersData || []).map(convertDbFolderToFolder);
       } else {
         // 本地模式：从本地存储获取文件夹
@@ -115,8 +119,9 @@ export const folderService = {
     type: 'physical' | 'logical';
   }) {
     try {
-      if (window.electronAPI?.createFolder) {
-        const created = await window.electronAPI.createFolder({
+      if (window.electronAPI?.['library:create-folder-v2'] || window.electronAPI?.createFolder) {
+        const createFn = window.electronAPI?.['library:create-folder-v2'] || window.electronAPI?.createFolder;
+        const created = await createFn({
           ...folderData,
           includeSubfolders: true,
           photoCount: 0,
@@ -131,6 +136,7 @@ export const folderService = {
           id: generateId(),
           name: folderData.name,
           parentId: folderData.parentId,
+          sortOrder: folders.filter((f) => (f.parentId || '-1') === (folderData.parentId || '-1')).length + 1,
           path: folderData.path,
           type: folderData.type,
           includeSubfolders: true,
@@ -155,8 +161,9 @@ export const folderService = {
    */
   async updateFolder(folderId: string, updates: Partial<Folder>) {
     try {
-      if (window.electronAPI?.updateFolder) {
-        await window.electronAPI.updateFolder({ id: folderId, ...updates });
+      if (window.electronAPI?.['library:update-folder-v2'] || window.electronAPI?.updateFolder) {
+        const updateFn = window.electronAPI?.['library:update-folder-v2'] || window.electronAPI?.updateFolder;
+        await updateFn({ id: folderId, ...updates });
         return true;
       } else {
         // 本地模式：更新本地存储中的文件夹
@@ -180,8 +187,9 @@ export const folderService = {
    */
   async deleteFolder(folderId: string) {
     try {
-      if (window.electronAPI?.deleteFolder) {
-        await window.electronAPI.deleteFolder(folderId);
+      if (window.electronAPI?.['library:delete-folder-v2'] || window.electronAPI?.deleteFolder) {
+        const deleteFn = window.electronAPI?.['library:delete-folder-v2'] || window.electronAPI?.deleteFolder;
+        await deleteFn(folderId);
         return true;
       } else {
         // 本地模式：从本地存储中删除文件夹
@@ -192,6 +200,60 @@ export const folderService = {
       }
     } catch (error) {
       console.error('Failed to delete folder:', error);
+      return false;
+    }
+  },
+
+  /**
+   * 清空文件夹照片
+   * @param folderId 文件夹ID
+   * @returns 是否清空成功
+   */
+  async clearFolderPhotos(folderId: string) {
+    try {
+      if (window.electronAPI?.clearFolderPhotos) {
+        await window.electronAPI.clearFolderPhotos(folderId);
+        return true;
+      } else {
+        // 本地模式：不需要额外操作，前端会过滤照片
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to clear folder photos:', error);
+      return false;
+    }
+  },
+
+  /**
+   * 更新文件夹父级关系
+   * @param folderId 文件夹ID
+   * @param parentId 新的父文件夹ID
+   * @returns 是否更新成功
+   */
+  async updateFolderParent(folderId: string, parentId: string | null, sortOrder?: number) {
+    try {
+      if (window.electronAPI?.['library:update-folder-v2'] || window.electronAPI?.updateFolder) {
+        const updateFn = window.electronAPI?.['library:update-folder-v2'] || window.electronAPI?.updateFolder;
+        await updateFn({ 
+          id: folderId, 
+          set_parent_id: true,
+          set_sort_order: typeof sortOrder === 'number',
+          parent_id: parentId, 
+          parentId: parentId,
+          sort_order: sortOrder,
+          sortOrder
+        });
+        return true;
+      } else {
+        const folders = getLocalFolders();
+        const updatedFolders = folders.map(folder => 
+          folder.id === folderId ? { ...folder, parentId, sortOrder: typeof sortOrder === 'number' ? sortOrder : folder.sortOrder } : folder
+        );
+        saveLocalFolders(updatedFolders);
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to update folder parent:', error);
       return false;
     }
   }

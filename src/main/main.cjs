@@ -231,6 +231,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:create-folder', async (_e, { folder }) => libraryManager.createFolder(folder));
   ipcMain.handle('library:update-folder', async (_e, { folder }) => libraryManager.updateFolder(folder));
   ipcMain.handle('library:delete-folder', async (_e, { folderId }) => libraryManager.deleteFolder(folderId));
+  ipcMain.handle('library:clear-folder-photos', async (_e, { folderId }) => {
+    await libraryManager.clearFolderPhotos(folderId);
+    return { success: true };
+  });
   ipcMain.handle('library:get-all-folders', async () => libraryManager.getAllFolders());
   ipcMain.handle('library:open-folder-path', async (_e, { folderPath }) => {
     const result = await shell.openPath(folderPath);

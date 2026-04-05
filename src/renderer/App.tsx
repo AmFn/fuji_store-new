@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Images, 
@@ -56,6 +56,7 @@ import { ConfirmModal } from './components/modals/ConfirmModal';
 import { PhotoDetailModal } from './components/modals/PhotoDetailModal';
 import { ImportModal } from './components/modals/ImportModal';
 import { SyncFolderModal } from './components/modals/SyncFolderModal';
+import { FolderInfoModal } from './components/modals/FolderInfoModal';
 
 // Views
 import { StatsView } from './components/views/StatsView';
@@ -71,6 +72,8 @@ interface User {
   displayName: string;
   photoURL: string;
 }
+
+const ROOT_PARENT_ID = '-1';
 
 // 从服务层获取真实数据，不再使用模拟数据
 
@@ -110,11 +113,17 @@ export default function App() {
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [cloudSyncEnabled, setCloudSyncEnabled] = useState(false);
   
+  // Sidebar width state
+  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const isResizingRef = useRef(false);
+  
   // Confirmation modal states
   const [showDirectoryClearConfirm, setShowDirectoryClearConfirm] = useState<boolean>(false);
   const [showDirectoryDeleteConfirm, setShowDirectoryDeleteConfirm] = useState<boolean>(false);
   const [currentDirectoryId, setCurrentDirectoryId] = useState<string>('');
   const [showDeleteTagConfirm, setShowDeleteTagConfirm] = useState<{ show: boolean, tagId: string }>({ show: false, tagId: '' });
+  const [showFolderInfo, setShowFolderInfo] = useState<{ name: string; path: string } | null>(null);
   
   // Photo pagination
   const [photoPage, setPhotoPage] = useState(1);
@@ -289,14 +298,26 @@ export default function App() {
     setIsImportModalOpen(true);
   };
 
-  const handleFolderReorder = (draggedId: string, targetId: string) => {
+  const handleFolderReorder = async (draggedId: string, targetId: string) => {
+    // 处理拖到根目录的情况，使用-1作为根目录的parentId
+    const parentId = targetId === ROOT_PARENT_ID ? ROOT_PARENT_ID : targetId;
+    const siblingFolders = folders.filter((folder) => (folder.parentId || ROOT_PARENT_ID) === parentId && folder.id !== draggedId);
+    const nextSortOrder = siblingFolders.reduce((max, folder) => Math.max(max, Number(folder.sortOrder ?? 0)), 0) + 1;
+    
+    // 调用服务更新文件夹父级关系和排序号
+    await folderService.updateFolderParent(draggedId, parentId, nextSortOrder);
+    
+    // 更新前端状态，立即显示文件夹的新位置
     setFolders(prev => {
       const next = [...prev];
       const draggedIdx = next.findIndex(f => f.id === draggedId);
-      const targetIdx = next.findIndex(f => f.id === targetId);
-      if (draggedIdx !== -1 && targetIdx !== -1) {
+      if (draggedIdx !== -1) {
         const [removed] = next.splice(draggedIdx, 1);
-        next.splice(targetIdx, 0, removed);
+        // 更新父级ID
+        removed.parentId = parentId;
+        removed.sortOrder = nextSortOrder;
+        // 重新添加到数组中（实际顺序会在重新加载时由后端决定）
+        next.push(removed);
       }
       return next;
     });
@@ -345,8 +366,10 @@ export default function App() {
     setShowDirectoryClearConfirm(true);
   };
 
-  const handleDirectoryClearPhotosConfirm = () => {
+  const handleDirectoryClearPhotosConfirm = async () => {
     // 清空文件夹照片的逻辑
+    await folderService.clearFolderPhotos(currentDirectoryId);
+    setPhotos(prev => prev.filter(p => p.folderId !== currentDirectoryId));
     setShowDirectoryClearConfirm(false);
   };
 
@@ -394,122 +417,175 @@ export default function App() {
 
 
 
+  // Sidebar resize handlers
+  const handleResizeStart = (e: React.MouseEvent) => {
+    isResizingRef.current = true;
+    // 添加事件监听器
+    document.addEventListener('mousemove', handleResize);
+    document.addEventListener('mouseup', handleResizeEnd);
+  };
+
+  const handleResize = (e: MouseEvent) => {
+    if (!isResizingRef.current || !sidebarRef.current) return;
+    
+    const rect = sidebarRef.current.getBoundingClientRect();
+    const newWidth = e.clientX - rect.left;
+    if (newWidth > 200 && newWidth < 500) {
+      setSidebarWidth(newWidth);
+    }
+  };
+
+  const handleResizeEnd = () => {
+    isResizingRef.current = false;
+    // 移除事件监听器
+    document.removeEventListener('mousemove', handleResize);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  };
+
+  useEffect(() => {
+    // 不需要在依赖数组中包含isResizingRef.current
+    // 因为useRef的current属性的变化不会触发useEffect的重新执行
+    return () => {
+      // 清理事件监听器
+      document.removeEventListener('mousemove', handleResize);
+      document.removeEventListener('mouseup', handleResizeEnd);
+    };
+  }, []);
+
   return (
     <div className={cn(
       "h-screen w-screen flex overflow-hidden font-sans transition-colors duration-300",
       theme === 'dark' ? "dark bg-[#0a0a0a] text-white" : "bg-slate-50 text-slate-900"
     )}>
       {/* Sidebar */}
-      <aside className="w-64 border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]/50 backdrop-blur-xl">
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <Images className="w-5 h-5 text-white" />
+      <div 
+        ref={sidebarRef}
+        className="flex flex-col bg-[var(--bg-secondary)]/50 backdrop-blur-xl border-r border-[var(--border-color)]"
+        style={{ width: `${sidebarWidth}px` }}
+      >
+        <div className="flex-1">
+          <div className="p-6 flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+              <Images className="w-5 h-5 text-white" />
+            </div>
+            <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-indigo-600">Fuji Store</span>
           </div>
-          <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-indigo-600">Fuji Store</span>
-        </div>
 
-        <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          <NavItem 
-            icon={<Images className="w-4 h-4" />} 
-            label="All Photos" 
-            active={activeView === 'photos'} 
-            onClick={() => {
-              setActiveFolderId(null);
-              setActiveView('photos');
-            }} 
-            theme={theme}
-          />
-          <NavItem 
-            icon={<Clock className="w-4 h-4" />} 
-            label="Timeline" 
-            active={activeView === 'timeline'} 
-            onClick={() => setActiveView('timeline')} 
-            theme={theme}
-          />
-          <NavItem 
-            icon={<Heart className="w-4 h-4" />} 
-            label="Favorites" 
-            active={activeView === 'favorites'} 
-            onClick={() => setActiveView('favorites')} 
-            theme={theme}
-          />
-          <NavItem 
-            icon={<Tags className="w-4 h-4" />} 
-            label="Tags" 
-            active={activeView === 'tags'} 
-            onClick={() => setActiveView('tags')} 
-            theme={theme}
-          />
-          <NavItem 
-            icon={<BarChart3 className="w-4 h-4" />} 
-            label="Stats" 
-            active={activeView === 'stats'} 
-            onClick={() => setActiveView('stats')} 
-            theme={theme}
-          />
-          <NavItem 
-            icon={<FlaskConical className="w-4 h-4" />} 
-            label="Recipes" 
-            active={activeView === 'recipes'} 
-            onClick={() => setActiveView('recipes')} 
-            theme={theme}
-          />
-          <NavItem 
-            icon={<Palette className="w-4 h-4" />} 
-            label="Templates" 
-            active={activeView === 'templates'} 
-            onClick={() => setActiveView('templates')} 
-            theme={theme}
-          />
-
-          <div className="pt-8 pb-2 px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-between">
-            Directories
-            <button 
+          <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+            <NavItem 
+              icon={<Images className="w-4 h-4" />} 
+              label="All Photos" 
+              active={activeView === 'photos'} 
               onClick={() => {
-                setImportModalInitialType('folders');
-                setImportMode('create');
-                setFolderName('');
-                setIsImportModalOpen(true);
-              }}
-              className="p-1 hover:bg-slate-500/10 rounded-md transition-colors"
-            >
-              <Plus className="w-3 h-3" />
-            </button>
-          </div>
-          <div className="space-y-1 px-2">
-            <DirectoryTree 
-              folders={folders} 
-              activeFolderId={activeFolderId}
-              onFolderSelect={(id) => {
-                setActiveFolderId(id);
+                setActiveFolderId(null);
                 setActiveView('photos');
-              }}
-              onRefresh={(id) => {
-                setSyncFolderId(id);
-                setIsSyncModalOpen(true);
               }} 
-              onRename={handleFolderRename}
-              onAddSubfolder={handleFolderAddSubfolder}
-              onAddFiles={handleFolderAddFiles}
-              onReorder={handleFolderReorder}
-              photos={photos} 
-              onUpdatePhoto={handleUpdatePhoto}
-              onDeleteFolder={async (folderId) => {
-                await folderService.deleteFolder(folderId);
-                setFolders(prev => prev.filter(f => f.id !== folderId));
-              }}
-              onClearPhotos={handleDirectoryClearPhotos}
-              onDeleteFolderConfirm={handleDirectoryDeleteFolder}
-              onOpenFolderPath={async (folderPath) => {
-                if (!folderPath || !window.electronAPI?.openFolderPath) return;
-                const result = await window.electronAPI.openFolderPath(folderPath);
-                if (!result?.success) {
-                  console.error('Open physical folder failed:', result?.error);
+              theme={theme}
+            />
+            <NavItem 
+              icon={<Clock className="w-4 h-4" />} 
+              label="Timeline" 
+              active={activeView === 'timeline'} 
+              onClick={() => setActiveView('timeline')} 
+              theme={theme}
+            />
+            <NavItem 
+              icon={<Heart className="w-4 h-4" />} 
+              label="Favorites" 
+              active={activeView === 'favorites'} 
+              onClick={() => setActiveView('favorites')} 
+              theme={theme}
+            />
+            <NavItem 
+              icon={<Tags className="w-4 h-4" />} 
+              label="Tags" 
+              active={activeView === 'tags'} 
+              onClick={() => setActiveView('tags')} 
+              theme={theme}
+            />
+            <NavItem 
+              icon={<BarChart3 className="w-4 h-4" />} 
+              label="Stats" 
+              active={activeView === 'stats'} 
+              onClick={() => setActiveView('stats')} 
+              theme={theme}
+            />
+            <NavItem 
+              icon={<FlaskConical className="w-4 h-4" />} 
+              label="Recipes" 
+              active={activeView === 'recipes'} 
+              onClick={() => setActiveView('recipes')} 
+              theme={theme}
+            />
+            <NavItem 
+              icon={<Palette className="w-4 h-4" />} 
+              label="Templates" 
+              active={activeView === 'templates'} 
+              onClick={() => setActiveView('templates')} 
+              theme={theme}
+            />
+
+            <div 
+              className="pt-8 pb-2 px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-between"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const draggedFolderId = e.dataTransfer.getData('folderId');
+                if (draggedFolderId) {
+                  handleFolderReorder(draggedFolderId, ROOT_PARENT_ID);
                 }
               }}
-            />
-          </div>
-        </nav>
+              style={{ cursor: 'pointer' }}
+            >
+              Directories
+              <button 
+                onClick={() => {
+                  setImportModalInitialType('folders');
+                  setImportMode('create');
+                  setFolderName('');
+                  setIsImportModalOpen(true);
+                }}
+                className="p-1 hover:bg-slate-500/10 rounded-md transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="space-y-1 px-2">
+              <DirectoryTree 
+                folders={folders} 
+                activeFolderId={activeFolderId}
+                onFolderSelect={(id) => {
+                  setActiveFolderId(id);
+                  setActiveView('photos');
+                }}
+                onRefresh={(id) => {
+                  setSyncFolderId(id);
+                  setIsSyncModalOpen(true);
+                }} 
+                onRename={handleFolderRename}
+                onAddSubfolder={handleFolderAddSubfolder}
+                onAddFiles={handleFolderAddFiles}
+                onReorder={handleFolderReorder}
+                photos={photos} 
+                onUpdatePhoto={handleUpdatePhoto}
+                onDeleteFolder={async (folderId) => {
+                  await folderService.deleteFolder(folderId);
+                  setFolders(prev => prev.filter(f => f.id !== folderId));
+                }}
+                onClearPhotos={handleDirectoryClearPhotos}
+                onDeleteFolderConfirm={handleDirectoryDeleteFolder}
+                onOpenFolderPath={async (folderPath) => {
+                  if (!folderPath || !window.electronAPI?.openFolderPath) return;
+                  const result = await window.electronAPI.openFolderPath(folderPath);
+                  if (!result?.success) {
+                    console.error('Open physical folder failed:', result?.error);
+                  }
+                }}
+                onShowFolderInfo={setShowFolderInfo}
+              />
+            </div>
+          </nav>
+        </div>
 
         <div className="p-4 border-t border-[var(--border-color)] space-y-4">
           <div className="flex items-center gap-3 px-2">
@@ -536,7 +612,13 @@ export default function App() {
             Settings
           </button>
         </div>
-      </aside>
+      </div>
+      
+      {/* Resize handle */}
+      <div 
+        className="w-1 bg-[var(--border-color)] cursor-col-resize hover:bg-blue-500/30 transition-colors"
+        onMouseDown={handleResizeStart}
+      />
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col relative overflow-hidden bg-[var(--bg-primary)]">
@@ -828,141 +910,141 @@ export default function App() {
             </div>
           ) : (
             <AnimatePresence mode="wait">
-            {activeView === 'stats' ? (
-              <StatsView key="stats" photos={photos} theme={theme} />
-            ) : activeView === 'templates' ? (
-              <div key="templates" className="flex flex-col items-center justify-center py-32 text-slate-400 space-y-6">
-                <div className="w-20 h-20 bg-slate-500/5 rounded-full flex items-center justify-center">
-                  <Palette className="w-10 h-10 opacity-20" />
+              {activeView === 'stats' ? (
+                <StatsView key="stats" photos={photos} theme={theme} />
+              ) : activeView === 'templates' ? (
+                <div key="templates" className="flex flex-col items-center justify-center py-32 text-slate-400 space-y-6">
+                  <div className="w-20 h-20 bg-slate-500/5 rounded-full flex items-center justify-center">
+                    <Palette className="w-10 h-10 opacity-20" />
+                  </div>
+                  <p className="font-medium">Templates feature coming soon</p>
                 </div>
-                <p className="font-medium">Templates feature coming soon</p>
-              </div>
-            ) : activeView === 'recipes' ? (
-              <RecipeView key="recipes" recipes={recipes} photos={photos} user={user} theme={theme} onAddRecipe={handleAddRecipe} />
-            ) : activeView === 'timeline' ? (
-              timelineLoading ? (
-                <div className="py-20 text-center text-xs font-black uppercase tracking-widest text-slate-400">
-                  Loading timeline...
-                </div>
-              ) : (
-                <TimelineView 
-                  key="timeline" 
-                  photos={timelinePhotos}
-                  onPhotoClick={setSelectedPhoto} 
-                  onSearchDate={(date) => {
-                    setFilterDate(date);
+              ) : activeView === 'recipes' ? (
+                <RecipeView key="recipes" recipes={recipes} photos={photos} user={user} theme={theme} onAddRecipe={handleAddRecipe} />
+              ) : activeView === 'timeline' ? (
+                timelineLoading ? (
+                  <div className="py-20 text-center text-xs font-black uppercase tracking-widest text-slate-400">
+                    Loading timeline...
+                  </div>
+                ) : (
+                  <TimelineView 
+                    key="timeline" 
+                    photos={timelinePhotos}
+                    onPhotoClick={setSelectedPhoto} 
+                    onSearchDate={(date) => {
+                      setFilterDate(date);
+                      setActiveView('photos');
+                      setIsAdvancedFilterOpen(true);
+                    }}
+                  />
+                )
+              ) : activeView === 'tags' ? (
+                <TagsView 
+                  key="tags" 
+                  tags={tags} 
+                  setTags={setTags} 
+                  photos={photos} 
+                  setPhotos={setPhotos}
+                  onTagClick={(tagName) => {
+                    setSelectedTags([tagName]);
                     setActiveView('photos');
-                    setIsAdvancedFilterOpen(true);
-                  }}
+                  }} 
                 />
-              )
-            ) : activeView === 'tags' ? (
-              <TagsView 
-                key="tags" 
-                tags={tags} 
-                setTags={setTags} 
-                photos={photos} 
-                setPhotos={setPhotos}
-                onTagClick={(tagName) => {
-                  setSelectedTags([tagName]);
-                  setActiveView('photos');
-                }} 
-              />
-            ) : activeView === 'settings' ? (
-              <SettingsView 
-                key="settings" 
-                theme={theme} 
-                setTheme={setTheme} 
-                folders={folders} 
-                setFolders={setFolders}
-                cloudSyncEnabled={cloudSyncEnabled}
-                setCloudSyncEnabled={setCloudSyncEnabled}
-                onFoldersChanged={setFolders}
-              />
-            ) : (
-              <div className="space-y-12">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                  <div>
-                    <h2 className="text-4xl font-black tracking-tighter">
-                      {activeFolderId 
-                        ? folders.find(f => f.id === activeFolderId)?.name 
-                        : activeView === 'photos' ? 'All Photos' : 
-                          activeView === 'favorites' ? 'Favorites' : 'Photos'}
-                    </h2>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                      {filteredPhotos.length} items in this view
-                    </p>
+              ) : activeView === 'settings' ? (
+                <SettingsView 
+                  key="settings" 
+                  theme={theme} 
+                  setTheme={setTheme} 
+                  folders={folders} 
+                  setFolders={setFolders}
+                  cloudSyncEnabled={cloudSyncEnabled}
+                  setCloudSyncEnabled={setCloudSyncEnabled}
+                  onFoldersChanged={setFolders}
+                />
+              ) : (
+                <div className="space-y-12">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div>
+                      <h2 className="text-4xl font-black tracking-tighter">
+                        {activeFolderId 
+                          ? folders.find(f => f.id === activeFolderId)?.name 
+                          : activeView === 'photos' ? 'All Photos' : 
+                            activeView === 'favorites' ? 'Favorites' : 'Photos'}
+                      </h2>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                        {filteredPhotos.length} items in this view
+                      </p>
+                    </div>
+
+                    {/* Top Sorting UI */}
+                    <div className="flex items-center gap-3 bg-slate-500/5 p-2 rounded-2xl border border-[var(--border-color)] backdrop-blur-md">
+                      <div className="flex items-center gap-2 px-3 border-r border-[var(--border-color)]">
+                        <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sort</span>
+                      </div>
+                      <div className="flex gap-2">
+                        {[
+                          { label: 'Date', value: 'date' },
+                          { label: 'Name', value: 'name' },
+                          { label: 'Size', value: 'size' }
+                        ].map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setSortBy(opt.value as any)}
+                            className={cn(
+                              "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                              sortBy === opt.value 
+                                ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" 
+                                : "text-slate-400 hover:text-slate-200 hover:bg-slate-500/10"
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="w-px h-6 bg-[var(--border-color)] mx-1" />
+                      <button 
+                        onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                        className="p-2 hover:bg-slate-500/10 rounded-xl transition-all group"
+                        title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+                      >
+                        <ArrowUpDown className={cn("w-4 h-4 text-slate-400 group-hover:text-blue-500 transition-all", sortOrder === 'desc' && "rotate-180")} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className={cn(
+                    "grid gap-8",
+                    viewMode === 'grid' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "grid-cols-1"
+                  )}>
+                    {filteredPhotos.map((photo, index) => (
+                      <PhotoCard 
+                        key={photo.id} 
+                        photo={photo} 
+                        mode={viewMode} 
+                        onClick={() => setSelectedPhoto(photo)} 
+                        theme={theme}
+                        onToggleFavorite={handleToggleFavorite}
+                        onDeletePhoto={handleDeletePhoto}
+                      />
+                    ))}
+                    {loadingMorePhotos && (
+                      <div className="py-6 flex items-center justify-center text-slate-400 text-xs font-bold uppercase tracking-widest">
+                        Loading more...
+                      </div>
+                    )}
                   </div>
 
-                  {/* Top Sorting UI */}
-                  <div className="flex items-center gap-3 bg-slate-500/5 p-2 rounded-2xl border border-[var(--border-color)] backdrop-blur-md">
-                    <div className="flex items-center gap-2 px-3 border-r border-[var(--border-color)]">
-                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sort</span>
-                    </div>
-                    <div className="flex gap-2">
-                      {[
-                        { label: 'Date', value: 'date' },
-                        { label: 'Name', value: 'name' },
-                        { label: 'Size', value: 'size' }
-                      ].map(opt => (
-                        <button
-                          key={opt.value}
-                          onClick={() => setSortBy(opt.value as any)}
-                          className={cn(
-                            "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                            sortBy === opt.value 
-                              ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" 
-                              : "text-slate-400 hover:text-slate-200 hover:bg-slate-500/10"
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="w-px h-6 bg-[var(--border-color)] mx-1" />
-                    <button 
-                      onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                      className="p-2 hover:bg-slate-500/10 rounded-xl transition-all group"
-                      title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
-                    >
-                      <ArrowUpDown className={cn("w-4 h-4 text-slate-400 group-hover:text-blue-500 transition-all", sortOrder === 'desc' && "rotate-180")} />
-                    </button>
-                  </div>
-                </div>
-                <div className={cn(
-                  "grid gap-8",
-                  viewMode === 'grid' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "grid-cols-1"
-                )}>
-                  {filteredPhotos.map((photo, index) => (
-                    <PhotoCard 
-                      key={photo.id} 
-                      photo={photo} 
-                      mode={viewMode} 
-                      onClick={() => setSelectedPhoto(photo)} 
-                      theme={theme}
-                      onToggleFavorite={handleToggleFavorite}
-                      onDeletePhoto={handleDeletePhoto}
-                    />
-                  ))}
-                  {loadingMorePhotos && (
-                    <div className="py-6 flex items-center justify-center text-slate-400 text-xs font-bold uppercase tracking-widest">
-                      Loading more...
+                  {filteredPhotos.length === 0 && (
+                    <div className="col-span-full flex flex-col items-center justify-center py-32 text-slate-400 space-y-6">
+                      <div className="w-20 h-20 bg-slate-500/5 rounded-full flex items-center justify-center">
+                        <Images className="w-10 h-10 opacity-20" />
+                      </div>
+                      <p className="font-medium">No photos found matching your criteria.</p>
                     </div>
                   )}
                 </div>
-
-                {filteredPhotos.length === 0 && (
-                  <div className="col-span-full flex flex-col items-center justify-center py-32 text-slate-400 space-y-6">
-                    <div className="w-20 h-20 bg-slate-500/5 rounded-full flex items-center justify-center">
-                      <Images className="w-10 h-10 opacity-20" />
-                    </div>
-                    <p className="font-medium">No photos found matching your criteria.</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </AnimatePresence>
+              )}
+            </AnimatePresence>
           )}
         </div>
       </main>
@@ -1134,10 +1216,21 @@ export default function App() {
         {showDirectoryDeleteConfirm && (
           <ConfirmModal
             title="删除文件夹"
-            message="确定要删除此文件夹吗？"
+            message="确定要删除此文件夹吗？这将同时删除该文件夹中的所有照片。"
             confirmLabel="删除"
             onConfirm={handleDirectoryDeleteFolderConfirm}
             onCancel={() => setShowDirectoryDeleteConfirm(false)}
+          />
+        )}
+        {showFolderInfo && (
+          <FolderInfoModal 
+            folder={showFolderInfo}
+            onCancel={() => setShowFolderInfo(null)}
+            onSelectNewPath={() => {
+              // 这里可以实现重新选择物理目录的逻辑
+              console.log('Select new path');
+              setShowFolderInfo(null);
+            }}
           />
         )}
       </AnimatePresence>

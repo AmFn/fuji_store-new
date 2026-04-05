@@ -14,8 +14,16 @@ declare global {
       createFolder: (folder: any) => Promise<any>;
       updateFolder: (folder: any) => Promise<any>;
       deleteFolder: (folderId: string) => Promise<any>;
+      clearFolderPhotos: (folderId: string) => Promise<{ success: boolean }>;
       assignFolderByPath: (folderId: string | number, folderPath: string, includeSubfolders?: boolean) => Promise<{ assigned: number }>;
       openFolderPath: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+      
+      // 文件夹相关 v2
+      'library:get-all-folders-v2': () => Promise<any[]>;
+      'library:create-folder-v2': (folder: any) => Promise<any>;
+      'library:update-folder-v2': (folder: any) => Promise<any>;
+      'library:delete-folder-v2': (folderId: string) => Promise<any>;
+      'library:assign-folder-by-path': (params: { folderId: string | number; folderPath: string; includeSubfolders?: boolean }) => Promise<{ assigned: number }>;
       
       // 标签相关
       getAllTags: () => Promise<string[]>;

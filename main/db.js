@@ -18,6 +18,14 @@ function toIntBool(value) {
   return value ? 1 : 0;
 }
 
+function normalizeFolderParentId(value) {
+  if (value === null || value === undefined || value === '' || value === '-1' || value === -1 || value === '0' || value === 0) {
+    return -1;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : -1;
+}
+
 function normalizePhotoRecord(photo) {
   const now = Date.now();
   const folderIdRaw = photo.folder_id ?? photo.folderId ?? null;
@@ -151,6 +159,7 @@ export class PhotoDatabase {
         name TEXT NOT NULL,
         path TEXT,
         parent_id INTEGER,
+        sort_order INTEGER NOT NULL DEFAULT 0,
         folder_type TEXT NOT NULL DEFAULT 'logical' CHECK (folder_type IN ('physical', 'logical')),
         include_subfolders INTEGER NOT NULL DEFAULT 1 CHECK (include_subfolders IN (0, 1)),
         photo_count INTEGER NOT NULL DEFAULT 0,
@@ -394,23 +403,24 @@ export class PhotoDatabase {
 
     this.stmts.insertFolder = this.db.prepare(`
       INSERT INTO folders (
-        name, path, parent_id, folder_type, include_subfolders, photo_count, last_synced, created_at, updated_at
+        name, path, parent_id, sort_order, folder_type, include_subfolders, photo_count, last_synced, created_at, updated_at
       )
       VALUES (
-        @name, @path, @parent_id, @folder_type, @include_subfolders, @photo_count, @last_synced, @created_at, @updated_at
+        @name, @path, @parent_id, @sort_order, @folder_type, @include_subfolders, @photo_count, @last_synced, @created_at, @updated_at
       )
     `);
 
     this.stmts.updateFolder = this.db.prepare(`
       UPDATE folders
       SET
-        name = COALESCE(@name, name),
-        path = COALESCE(@path, path),
-        parent_id = COALESCE(@parent_id, parent_id),
-        folder_type = COALESCE(@folder_type, folder_type),
-        include_subfolders = COALESCE(@include_subfolders, include_subfolders),
-        photo_count = COALESCE(@photo_count, photo_count),
-        last_synced = COALESCE(@last_synced, last_synced),
+        name = CASE WHEN @name IS NOT NULL THEN @name ELSE name END,
+        path = CASE WHEN @path IS NOT NULL THEN @path ELSE path END,
+        parent_id = CASE WHEN @set_parent_id = 1 THEN @parent_id ELSE parent_id END,
+        sort_order = CASE WHEN @set_sort_order = 1 THEN @sort_order ELSE sort_order END,
+        folder_type = CASE WHEN @folder_type IS NOT NULL THEN @folder_type ELSE folder_type END,
+        include_subfolders = CASE WHEN @include_subfolders IS NOT NULL THEN @include_subfolders ELSE include_subfolders END,
+        photo_count = CASE WHEN @photo_count IS NOT NULL THEN @photo_count ELSE photo_count END,
+        last_synced = CASE WHEN @last_synced IS NOT NULL THEN @last_synced ELSE last_synced END,
         updated_at = @updated_at
       WHERE id = @id
     `);
@@ -421,9 +431,9 @@ export class PhotoDatabase {
 
     this.stmts.getAllFolders = this.db.prepare(`
       SELECT
-        id, name, path, parent_id, folder_type, include_subfolders, photo_count, last_synced, created_at, updated_at
+        id, name, path, parent_id, sort_order, folder_type, include_subfolders, photo_count, last_synced, created_at, updated_at
       FROM folders
-      ORDER BY id ASC
+      ORDER BY parent_id ASC, sort_order ASC, id ASC
     `);
 
     this.stmts.findPhysicalFolderByPath = this.db.prepare(`
@@ -442,6 +452,12 @@ export class PhotoDatabase {
         AND IFNULL(parent_id, -1) = IFNULL(?, -1)
       ORDER BY id ASC
       LIMIT 1
+    `);
+
+    this.stmts.getMaxFolderSortOrderByParent = this.db.prepare(`
+      SELECT COALESCE(MAX(sort_order), 0) AS max_sort_order
+      FROM folders
+      WHERE parent_id = ?
     `);
   }
 
@@ -475,12 +491,85 @@ export class PhotoDatabase {
     if (folderSet.has('parent_id')) {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)');
     }
+    if (folderSet.has('sort_order')) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_folders_parent_sort ON folders(parent_id, sort_order)');
+    }
     if (folderSet.has('path')) {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path)');
     }
   }
 
   #migrateLegacySchema() {
+    const folderColsBefore = this.db.prepare("PRAGMA table_info(folders)").all();
+    if (folderColsBefore.length > 0) {
+      const folderColSetBefore = new Set(folderColsBefore.map((c) => c.name));
+      const folderFks = this.db.prepare('PRAGMA foreign_key_list(folders)').all();
+      const hasParentForeignKey = folderFks.some((fk) => fk.from === 'parent_id');
+
+      if (hasParentForeignKey) {
+        const now = Date.now();
+        const idExpr = folderColSetBefore.has('id') ? 'id' : 'NULL';
+        const nameExpr = folderColSetBefore.has('name') ? 'name' : "''";
+        const pathExpr = folderColSetBefore.has('path') ? 'path' : 'NULL';
+        const parentExpr = folderColSetBefore.has('parent_id') ? 'COALESCE(NULLIF(parent_id, 0), -1)' : '-1';
+        const typeExpr = folderColSetBefore.has('folder_type')
+          ? "COALESCE(folder_type, CASE WHEN path IS NULL OR path = '' THEN 'logical' ELSE 'physical' END)"
+          : "CASE WHEN path IS NULL OR path = '' THEN 'logical' ELSE 'physical' END";
+        const includeExpr = folderColSetBefore.has('include_subfolders') ? 'COALESCE(include_subfolders, 1)' : '1';
+        const photoCountExpr = folderColSetBefore.has('photo_count') ? 'COALESCE(photo_count, 0)' : '0';
+        const lastSyncedExpr = folderColSetBefore.has('last_synced') ? 'last_synced' : 'NULL';
+        const createdExpr = folderColSetBefore.has('created_at') ? `COALESCE(created_at, ${now})` : `${now}`;
+        const updatedExpr = folderColSetBefore.has('updated_at') ? `COALESCE(updated_at, ${now})` : `${now}`;
+
+        this.db.exec('PRAGMA foreign_keys = OFF');
+        this.db.exec('BEGIN TRANSACTION');
+        try {
+          this.db.exec('ALTER TABLE folders RENAME TO folders__old');
+          this.db.exec(`
+            CREATE TABLE folders (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              path TEXT,
+              parent_id INTEGER,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              folder_type TEXT NOT NULL DEFAULT 'logical' CHECK (folder_type IN ('physical', 'logical')),
+              include_subfolders INTEGER NOT NULL DEFAULT 1 CHECK (include_subfolders IN (0, 1)),
+              photo_count INTEGER NOT NULL DEFAULT 0,
+              last_synced INTEGER,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+          `);
+          this.db.exec(`
+            INSERT INTO folders (
+              id, name, path, parent_id, sort_order, folder_type, include_subfolders, photo_count, last_synced, created_at, updated_at
+            )
+            SELECT
+              ${idExpr},
+              ${nameExpr},
+              ${pathExpr},
+              ${parentExpr},
+              0,
+              ${typeExpr},
+              ${includeExpr},
+              ${photoCountExpr},
+              ${lastSyncedExpr},
+              ${createdExpr},
+              ${updatedExpr}
+            FROM folders__old
+          `);
+          this.db.exec('DROP TABLE folders__old');
+          this.db.exec('PRAGMA foreign_keys = ON');
+          this.db.exec('COMMIT');
+        } catch (error) {
+          this.db.exec('ROLLBACK');
+          throw error;
+        } finally {
+          this.db.exec('PRAGMA foreign_keys = ON');
+        }
+      }
+    }
+
     const photoCols = this.db.prepare("PRAGMA table_info(photos)").all();
     const photoSet = new Set(photoCols.map((c) => c.name));
 
@@ -568,11 +657,18 @@ export class PhotoDatabase {
     const folderCols = this.db.prepare("PRAGMA table_info(folders)").all();
     const folderSet = new Set(folderCols.map((c) => c.name));
     if (folderSet.size > 0) {
+      if (folderSet.has('parent_id')) {
+        // 统一根目录语义：-1 代表根目录
+        this.db.exec('UPDATE folders SET parent_id = -1 WHERE parent_id IS NULL OR parent_id = 0');
+      }
       if (!folderSet.has('folder_type')) {
         this.db.exec("ALTER TABLE folders ADD COLUMN folder_type TEXT NOT NULL DEFAULT 'logical'");
         if (folderSet.has('path')) {
           this.db.exec("UPDATE folders SET folder_type = CASE WHEN path IS NULL OR path = '' THEN 'logical' ELSE 'physical' END");
         }
+      }
+      if (!folderSet.has('sort_order')) {
+        this.db.exec('ALTER TABLE folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
       }
       if (!folderSet.has('include_subfolders')) {
         this.db.exec('ALTER TABLE folders ADD COLUMN include_subfolders INTEGER NOT NULL DEFAULT 1');
@@ -743,7 +839,11 @@ export class PhotoDatabase {
     const now = Date.now();
     const folderType = folder.folder_type || folder.type || (folder.path ? 'physical' : 'logical');
     const normalizedPath = folder.path ? normalizePath(folder.path) : null;
-    const parentId = folder.parent_id ?? folder.parentId ?? null;
+    const parentId = normalizeFolderParentId(folder.parent_id ?? folder.parentId ?? -1);
+    const sortOrderRaw = folder.sort_order ?? folder.sortOrder;
+    const hasExplicitSortOrder = sortOrderRaw !== undefined && sortOrderRaw !== null && sortOrderRaw !== '';
+    const maxSortRow = this.stmts.getMaxFolderSortOrderByParent.get(parentId);
+    const nextSortOrder = hasExplicitSortOrder ? Number(sortOrderRaw) : Number(maxSortRow?.max_sort_order ?? 0) + 1;
 
     if (folderType === 'physical' && normalizedPath) {
       const existing = this.stmts.findPhysicalFolderByPath.get(normalizedPath);
@@ -759,6 +859,7 @@ export class PhotoDatabase {
       name: folder.name,
       path: normalizedPath,
       parent_id: parentId,
+      sort_order: Number.isFinite(nextSortOrder) ? nextSortOrder : 0,
       folder_type: folderType,
       include_subfolders: folder.include_subfolders === undefined
         ? toIntBool(folder.includeSubfolders ?? true)
@@ -773,11 +874,24 @@ export class PhotoDatabase {
   }
 
   async updateFolder(folder) {
+    const hasParentId = Object.prototype.hasOwnProperty.call(folder, 'parent_id')
+      || Object.prototype.hasOwnProperty.call(folder, 'parentId')
+      || Object.prototype.hasOwnProperty.call(folder, 'set_parent_id');
+    const hasSortOrder = Object.prototype.hasOwnProperty.call(folder, 'sort_order')
+      || Object.prototype.hasOwnProperty.call(folder, 'sortOrder')
+      || Object.prototype.hasOwnProperty.call(folder, 'set_sort_order');
+    const parentId = normalizeFolderParentId(folder.parent_id ?? folder.parentId ?? -1);
+    const sortOrderRaw = folder.sort_order ?? folder.sortOrder ?? 0;
+    const sortOrder = Number(sortOrderRaw);
+
     const payload = {
       id: Number(folder.id),
       name: folder.name ?? null,
       path: folder.path ? normalizePath(folder.path) : null,
-      parent_id: folder.parent_id ?? folder.parentId ?? null,
+      parent_id: parentId,
+      set_parent_id: hasParentId ? 1 : 0,
+      sort_order: Number.isFinite(sortOrder) ? sortOrder : 0,
+      set_sort_order: hasSortOrder ? 1 : 0,
       folder_type: folder.folder_type ?? folder.type ?? null,
       include_subfolders: folder.include_subfolders === undefined && folder.includeSubfolders === undefined
         ? null
@@ -923,6 +1037,11 @@ export class PhotoDatabase {
 
   async clearAllPhotos() {
     const result = this.db.prepare('DELETE FROM photos').run();
+    return { deleted: result.changes };
+  }
+
+  async clearFolderPhotos(folderId) {
+    const result = this.db.prepare('DELETE FROM photos WHERE folder_id = ?').run(Number(folderId));
     return { deleted: result.changes };
   }
 

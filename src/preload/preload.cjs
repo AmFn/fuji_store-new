@@ -229,4 +229,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       console.error('clearAllPhotos error:', err);
       return { deleted: 0 };
     }),
+
+  // 清空文件夹照片
+  clearFolderPhotos: (folderId) =>
+    ipcRenderer.invoke('library:clear-folder-photos', { folderId }).catch(err => {
+      console.error('clearFolderPhotos error:', err);
+      return { success: false };
+    }),
 });

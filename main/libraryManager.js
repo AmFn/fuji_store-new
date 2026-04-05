@@ -184,6 +184,10 @@ export class LibraryManager extends EventEmitter {
   async clearAllPhotos() {
     return this.db.clearAllPhotos();
   }
+
+  async clearFolderPhotos(folderId) {
+    return this.db.clearFolderPhotos(folderId);
+  }
 }
 
 export function registerLibraryIpc(ipcMain, manager) {

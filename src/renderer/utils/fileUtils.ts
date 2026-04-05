@@ -110,7 +110,7 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     previewUrl,
     hash: dbPhoto.hash || '',
     cameraModel: dbPhoto.camera_model || '',
-    dateTime: dbPhoto.created_at ? new Date(dbPhoto.created_at).toISOString() : new Date().toISOString(),
+    dateTime: dbPhoto.shot_at ? new Date(dbPhoto.shot_at).toISOString() : (dbPhoto.created_at ? new Date(dbPhoto.created_at).toISOString() : new Date().toISOString()),
     filmMode: dbPhoto.film_mode || '',
     isFavorite: false,
     isHidden: false,
@@ -127,7 +127,6 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     highlightTone: dbPhoto.highlight_tone || '',
     shadowTone: dbPhoto.shadow_tone || '',
     tone: dbPhoto.tone || '',
-    color: dbPhoto.color || '',
     sharpness: dbPhoto.sharpness || '',
     clarity: dbPhoto.clarity || '',
     noiseReduction: dbPhoto.noise_reduction || '',
@@ -164,8 +163,12 @@ export function convertDbFolderToFolder(dbFolder: any): Folder {
   const folderType = dbFolder.folder_type || dbFolder.type || (folderPath ? 'physical' : 'logical');
   const includeSubfolders = dbFolder.include_subfolders ?? dbFolder.includeSubfolders ?? true;
   const photoCount = dbFolder.photo_count ?? dbFolder.photoCount ?? 0;
+  const sortOrderRaw = dbFolder.sort_order ?? dbFolder.sortOrder ?? 0;
   const lastSynced = dbFolder.last_synced ?? dbFolder.lastSynced ?? null;
-  const parentId = dbFolder.parent_id ?? dbFolder.parentId ?? null;
+  const parentRaw = dbFolder.parent_id ?? dbFolder.parentId ?? -1;
+  const parentId = parentRaw === null || parentRaw === undefined || parentRaw === '' || Number(parentRaw) === 0
+    ? '-1'
+    : String(parentRaw);
 
   return {
     id: String(dbFolder.id),
@@ -174,7 +177,8 @@ export function convertDbFolderToFolder(dbFolder: any): Folder {
     type: folderType,
     includeSubfolders: Boolean(includeSubfolders),
     photoCount: Number(photoCount),
+    sortOrder: Number(sortOrderRaw) || 0,
     lastSynced: lastSynced ? new Date(lastSynced).toISOString() : '',
-    parentId: parentId ? String(parentId) : undefined
+    parentId
   };
 }
