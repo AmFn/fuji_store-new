@@ -33,6 +33,7 @@ import { cn } from './lib/utils';
 import { Photo, Recipe, Tag, Folder } from './types';
 import { FILM_MODES, FILM_SHORT_CODES, COLORS } from './constants/filmModes';
 import { isPhotoInFolder } from './utils/fileUtils';
+import { useLanguage } from './hooks/useLanguage';
 
 // Custom Hooks
 import { usePhotoLibrary } from './hooks/usePhotoLibrary';
@@ -80,6 +81,8 @@ const ROOT_PARENT_ID = '-1';
 // 从服务层获取真实数据，不再使用模拟数据
 
 export default function App() {
+  const { t, locale, language, setLanguage } = useLanguage();
+  
   // User state
   const [user, setUser] = useState<User | null>({ 
     uid: 'demo', 
@@ -482,7 +485,7 @@ export default function App() {
           <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
             <NavItem 
               icon={<Images className="w-4 h-4" />} 
-              label="All Photos" 
+              label={t('nav.allPhotos')} 
               active={activeView === 'photos'} 
               onClick={() => {
                 setActiveFolderId(null);
@@ -492,42 +495,42 @@ export default function App() {
             />
             <NavItem 
               icon={<Clock className="w-4 h-4" />} 
-              label="Timeline" 
+              label={t('nav.timeline')} 
               active={activeView === 'timeline'} 
               onClick={() => setActiveView('timeline')} 
               theme={theme}
             />
             <NavItem 
               icon={<Heart className="w-4 h-4" />} 
-              label="Favorites" 
+              label={t('nav.favorites')} 
               active={activeView === 'favorites'} 
               onClick={() => setActiveView('favorites')} 
               theme={theme}
             />
             <NavItem 
               icon={<Tags className="w-4 h-4" />} 
-              label="Tags" 
+              label={t('nav.tags')} 
               active={activeView === 'tags'} 
               onClick={() => setActiveView('tags')} 
               theme={theme}
             />
             <NavItem 
               icon={<BarChart3 className="w-4 h-4" />} 
-              label="Stats" 
+              label={t('nav.stats')} 
               active={activeView === 'stats'} 
               onClick={() => setActiveView('stats')} 
               theme={theme}
             />
             <NavItem 
               icon={<FlaskConical className="w-4 h-4" />} 
-              label="Recipes" 
+              label={t('nav.recipes')} 
               active={activeView === 'recipes'} 
               onClick={() => setActiveView('recipes')} 
               theme={theme}
             />
             <NavItem 
               icon={<Palette className="w-4 h-4" />} 
-              label="Templates" 
+              label={t('nav.templates')} 
               active={activeView === 'templates'} 
               onClick={() => setActiveView('templates')} 
               theme={theme}
@@ -545,7 +548,7 @@ export default function App() {
               }}
               style={{ cursor: 'pointer' }}
             >
-              Directories
+              {t('nav.directories')}
               <button 
                 onClick={() => {
                   setImportModalInitialType('folders');
@@ -617,7 +620,7 @@ export default function App() {
             )}
           >
             <Settings className="w-3.5 h-3.5" />
-            Settings
+            {t('nav.settings')}
           </button>
         </div>
       </div>
@@ -638,7 +641,7 @@ export default function App() {
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
                   type="text" 
-                  placeholder="Search photos, models, recipes..." 
+                  placeholder={t('filter.search')} 
                   className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl py-2.5 pl-12 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -666,19 +669,19 @@ export default function App() {
                   onClick={() => setFilterExtension('JPG')}
                   className={cn("px-3 py-1.5 rounded-lg text-xs font-black transition-all", filterExtension === 'JPG' ? "bg-blue-500 text-white shadow-sm" : "text-slate-400 hover:text-slate-600")}
                 >
-                  JPG
+                  {t('filter.jpg')}
                 </button>
                 <button 
                   onClick={() => setFilterExtension('RAF')}
                   className={cn("px-3 py-1.5 rounded-lg text-xs font-black transition-all", filterExtension === 'RAF' ? "bg-blue-500 text-white shadow-sm" : "text-slate-400 hover:text-slate-600")}
                 >
-                  RAF
+                  {t('filter.raf')}
                 </button>
                 <button 
                   onClick={() => setFilterExtension('All')}
                   className={cn("px-3 py-1.5 rounded-lg text-xs font-black transition-all", filterExtension === 'All' ? "bg-blue-500 text-white shadow-sm" : "text-slate-400 hover:text-slate-600")}
                 >
-                  ALL
+                  {t('filter.all')}
                 </button>
               </div>
               
@@ -690,7 +693,7 @@ export default function App() {
                 )}
               >
                 <Filter className="w-4 h-4" />
-                Advanced
+                {t('filter.advanced')}
               </button>
 
               <button 
@@ -703,7 +706,7 @@ export default function App() {
                 className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20"
               >
                 <Plus className="w-4 h-4" />
-                Import
+                {t('importBtn')}
               </button>
             </div>
           </header>
@@ -721,13 +724,13 @@ export default function App() {
               <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-6 max-w-6xl">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date Filter</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('filter.dateFilter')}</label>
                     {filterDate && (
                       <button 
                         onClick={() => setFilterDate('')}
                         className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline"
                       >
-                        Reset
+                        {t('filter.reset')}
                       </button>
                     )}
                   </div>
@@ -737,10 +740,10 @@ export default function App() {
                   />
                   <div className="flex flex-wrap gap-2 mt-2">
                     {[
-                      { label: 'All', value: '' },
-                      { label: 'Today', value: new Date().toISOString().split('T')[0] },
-                      { label: '7 Days', value: new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0] },
-                      { label: 'Month', value: new Date().toISOString().slice(0, 7) }
+                      { label: t('filter.all'), value: '' },
+                      { label: t('filter.today'), value: new Date().toISOString().split('T')[0] },
+                      { label: t('filter.days7'), value: new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0] },
+                      { label: t('filter.month'), value: new Date().toISOString().slice(0, 7) }
                     ].map(opt => (
                       <button
                         key={opt.label}
@@ -761,13 +764,13 @@ export default function App() {
 
                 <div className="space-y-3 col-span-1 md:col-span-2 lg:col-span-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Film Simulation</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('filter.filmSimulation')}</label>
                     {filterFilmMode !== 'All' && (
                       <button 
                         onClick={() => setFilterFilmMode('All')}
                         className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline"
                       >
-                        Reset
+                        {t('filter.reset')}
                       </button>
                     )}
                   </div>
@@ -776,7 +779,7 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                     <input 
                       type="text" 
-                      placeholder="Search simulation..."
+                      placeholder={t('filter.filmSimulation') + '...'}
                       className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-xl pl-9 pr-4 py-2 text-xs focus:outline-none focus:border-blue-500/50 transition-all"
                       value={filterFilmMode === 'All' ? '' : filterFilmMode}
                       onChange={(e) => {
@@ -804,7 +807,7 @@ export default function App() {
                               : "bg-slate-500/5 border-[var(--border-color)] text-slate-400 hover:border-blue-500/30"
                           )}
                         >
-                          {mode === 'All' ? 'All' : (FILM_SHORT_CODES[mode] || mode)}
+                          {mode === 'All' ? t('filter.all') : (FILM_SHORT_CODES[mode] || mode)}
                         </button>
                       ))}
                     </div>
@@ -812,18 +815,17 @@ export default function App() {
                 </div>
                 <div className="space-y-3 col-span-1 md:col-span-2 lg:col-span-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tags</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('filter.tags')}</label>
                     {selectedTags.length > 0 && (
                       <button 
                         onClick={() => setSelectedTags([])}
                         className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline"
                       >
-                        Clear ({selectedTags.length})
+                        {t('filter.clear')} ({selectedTags.length})
                       </button>
                     )}
                   </div>
                   
-                  {/* Selected Tags Badges */}
                   {selectedTags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {selectedTags.map(tagName => {
@@ -846,14 +848,14 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                     <input 
                       type="text" 
-                      placeholder="Search tags..."
+                      placeholder={t('filter.tags') + '...'}
                       className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-xl pl-9 pr-4 py-2 text-xs focus:outline-none focus:border-blue-500/50 transition-all"
                       value={tagSearchQuery}
                       onChange={(e) => setTagSearchQuery(e.target.value)}
                     />
                   </div>
 
-                  <div className="max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                  <div className="maxh-32 overflow-y-auto pr-2 custom-scrollbar">
                     <div className="flex flex-wrap gap-2">
                       {tags
                         .filter(tag => 
@@ -873,7 +875,7 @@ export default function App() {
                           </button>
                         ))}
                       {tags.filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase())).length === 0 && (
-                        <p className="text-[10px] text-slate-500 italic w-full text-center py-2">No tags found</p>
+                        <p className="text-[10px] text-slate-500 italic w-full text-center py-2">{t('filter.noTagsFound')}</p>
                       )}
                     </div>
                   </div>
@@ -889,7 +891,7 @@ export default function App() {
                     className="px-6 py-2.5 bg-red-500 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-red-500/20 flex items-center gap-2"
                   >
                     <RefreshCw className="w-3 h-3" />
-                    Reset All Filters
+                    {t('filter.resetAllFilters')}
                   </button>
                 </div>
               </div>
@@ -901,7 +903,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto p-8">
           {loading ? (
             <div className="py-20 text-center text-xs font-black uppercase tracking-widest text-slate-400">
-              Loading data...
+              {t('loading')}
             </div>
           ) : error ? (
             <div className="py-20 text-center space-y-4">
@@ -913,7 +915,7 @@ export default function App() {
                 onClick={reload}
                 className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all"
               >
-                Retry
+                {t('retry')}
               </button>
             </div>
           ) : (
@@ -968,11 +970,14 @@ export default function App() {
                   key="settings" 
                   theme={theme} 
                   setTheme={setTheme} 
-                  folders={folders} 
-                  setFolders={setFolders}
                   cloudSyncEnabled={cloudSyncEnabled}
                   setCloudSyncEnabled={setCloudSyncEnabled}
-                  onFoldersChanged={setFolders}
+                  thumbnailDir={thumbnailDir}
+                  onCacheDirChange={async (dir) => {
+                    if (window.electronAPI?.setThumbnailDir) {
+                      await window.electronAPI.setThumbnailDir(dir);
+                    }
+                  }}
                 />
               ) : (
                 <div className="space-y-12">
@@ -985,7 +990,7 @@ export default function App() {
                             activeView === 'favorites' ? 'Favorites' : 'Photos'}
                       </h2>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                        {filteredPhotos.length} items in this view
+                        {filteredPhotos.length} {t('itemsInView')}
                       </p>
                     </div>
 
@@ -993,13 +998,13 @@ export default function App() {
                     <div className="flex items-center gap-3 bg-slate-500/5 p-2 rounded-2xl border border-[var(--border-color)] backdrop-blur-md">
                       <div className="flex items-center gap-2 px-3 border-r border-[var(--border-color)]">
                         <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sort</span>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('sort.sort')}</span>
                       </div>
                       <div className="flex gap-2">
                         {[
-                          { label: 'Date', value: 'date' },
-                          { label: 'Name', value: 'name' },
-                          { label: 'Size', value: 'size' }
+                          { label: t('sort.date'), value: 'date' },
+                          { label: t('sort.name'), value: 'name' },
+                          { label: t('sort.size'), value: 'size' }
                         ].map(opt => (
                           <button
                             key={opt.value}

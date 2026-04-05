@@ -50,12 +50,13 @@ export class LibraryManager extends EventEmitter {
     this.libraryRoots = new Set();
   }
 
-  async scanDirectory(dirPath, { watch = true } = {}) {
+  async scanDirectory(dirPath, { watch = true, allowedFormats = null } = {}) {
     const root = normalizePath(dirPath);
     this.libraryRoots.add(root);
 
     const result = await this.scanner.scanDirectory(root, {
       recursive: true,
+      allowedFormats,
       onProgress: async (progress) => {
         this.scanProgress = progress;
       },
@@ -65,7 +66,6 @@ export class LibraryManager extends EventEmitter {
             await this.thumbnailQueue.enqueue(row.path, row.hash, { reason: 'scan' });
           }
         }
-        // 触发批量插入事件，通知前端刷新
         this.emit('batch:upsert', { count: rows.length, paths: rows.map(row => row.path) });
       },
     });
@@ -297,7 +297,7 @@ export class LibraryManager extends EventEmitter {
 }
 
 export function registerLibraryIpc(ipcMain, manager) {
-  ipcMain.handle('scanDirectory', async (_evt, targetPath) => manager.scanDirectory(targetPath, { watch: true }));
+  ipcMain.handle('scanDirectory', async (_evt, targetPath, allowedFormats = null) => manager.scanDirectory(targetPath, { watch: true, allowedFormats }));
   ipcMain.handle('scanDirectoryForNewFiles', async (_evt, targetPath) => manager.scanDirectoryForNewFiles(targetPath));
   ipcMain.handle('getPhotos', async (_evt, page, pageSize) => manager.getPhotos(page, pageSize));
   ipcMain.handle('getScanProgress', async () => manager.getScanProgress());

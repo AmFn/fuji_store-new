@@ -67,11 +67,12 @@ declare global {
       
       // 其他
       getThumbnailDir: () => Promise<string>;
+      setThumbnailDir: (dir: string) => Promise<{ success: boolean; cacheDir: string }>;
       clearThumbnailCache: () => Promise<{ success: boolean; deleted?: number; error?: string }>;
       clearAllPhotos: () => Promise<any>;
       onLibraryUpdated: (listener: (payload: any) => void) => () => void;
     triggerLibraryUpdate: () => Promise<{ success: boolean }>;
-    importFolder: (options: { folderPath: string; targetFolderId: string | null }) => Promise<any>;
+    importFolder: (options: { folderPath: string; targetFolderId: string | null; allowedFormats?: string[] | null }) => Promise<any>;
     importFiles: (options: { files: string[]; targetFolderId: string | null }) => Promise<any[]>;
     };
   }

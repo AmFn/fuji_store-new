@@ -7,6 +7,37 @@ const isDev = process.env.NODE_ENV === 'development';
 let mainWindow;
 let libraryManager;
 let thumbnailCacheDir = '';
+let configPath = '';
+
+async function loadConfig() {
+  try {
+    const configData = await fs.readFile(configPath, 'utf-8');
+    return JSON.parse(configData);
+  } catch {
+    return {};
+  }
+}
+
+async function saveConfig(config) {
+  await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+}
+
+async function getThumbnailCacheDir() {
+  const config = await loadConfig();
+  if (config.cacheDir) {
+    return config.cacheDir;
+  }
+  return thumbnailCacheDir;
+}
+
+async function setThumbnailCacheDir(dir) {
+  const config = await loadConfig();
+  config.cacheDir = dir;
+  await saveConfig(config);
+  thumbnailCacheDir = dir;
+  await fs.mkdir(dir, { recursive: true });
+  return { success: true, cacheDir: dir };
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -88,7 +119,14 @@ app.whenReady().then(async () => {
 
   const projectDir = process.cwd();
   const dbPath = path.join(projectDir, 'database', 'photos.db');
+  configPath = path.join(projectDir, 'config.json');
   thumbnailCacheDir = path.join(projectDir, 'cache', 'thumbnails');
+  
+  const config = await loadConfig();
+  if (config.cacheDir) {
+    thumbnailCacheDir = config.cacheDir;
+  }
+  
   await fs.mkdir(path.dirname(dbPath), { recursive: true });
   await fs.mkdir(thumbnailCacheDir, { recursive: true });
 
@@ -185,12 +223,14 @@ app.whenReady().then(async () => {
     watcher: { watchedPaths: libraryManager.watcher.getWatchedDirectories() },
     queue: libraryManager.thumbnailQueue.getStatus(),
   }));
-  ipcMain.handle('app:get-thumbnail-dir', async () => thumbnailCacheDir);
+  ipcMain.handle('app:get-thumbnail-dir', async () => getThumbnailCacheDir());
+  ipcMain.handle('app:set-thumbnail-dir', async (_e, dir) => setThumbnailCacheDir(dir));
   ipcMain.handle('app:clear-thumbnail-cache', async () => {
-    const files = await fs.readdir(thumbnailCacheDir).catch(() => []);
+    const cacheDir = await getThumbnailCacheDir();
+    const files = await fs.readdir(cacheDir).catch(() => []);
     let deleted = 0;
     for (const n of files) {
-      const full = path.join(thumbnailCacheDir, n);
+      const full = path.join(cacheDir, n);
       try {
         const st = await fs.stat(full);
         if (st.isFile()) {

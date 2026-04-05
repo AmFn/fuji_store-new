@@ -9,6 +9,7 @@ import { FilmTag } from '../common/FilmTag';
 import { FilmSettingCard } from '../common/FilmSettingCard';
 import { tagService } from '../../services/tagService';
 import { cn } from '../../lib/utils';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface PhotoDetailModalProps {
   photo: Photo;
@@ -37,6 +38,7 @@ export function PhotoDetailModal({
   onDeletePhoto,
   onAddTag
 }: PhotoDetailModalProps) {
+  const { t } = useLanguage();
   const [isFavorite, setIsFavorite] = useState(photo.isFavorite);
   const [isHidden, setIsHidden] = useState(photo.isHidden);
   const [rating, setRating] = useState(photo.rating);
@@ -167,7 +169,7 @@ export function PhotoDetailModal({
             <img src={photo.previewUrl} className="max-w-full max-h-full object-contain" alt={photo.fileName} />
             {photo.fileName.toLowerCase().endsWith('.raf') && (
               <div className="absolute top-8 right-8 px-4 py-2 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg">
-                RAW / RAF
+                {t('photoDetail.rawFile')}
               </div>
             )}
             <button 
@@ -187,7 +189,7 @@ export function PhotoDetailModal({
                   <span className="text-slate-600">•</span>
                   <div className="flex items-center gap-1 text-[10px] font-bold text-blue-500 uppercase tracking-widest">
                     <HardDrive className="w-3 h-3" />
-                    {folder?.name || 'Uncategorized'}
+                    {folder?.name || t('photoDetail.uncategorized')}
                   </div>
                 </div>
               </div>
@@ -195,14 +197,14 @@ export function PhotoDetailModal({
                 <button 
                   onClick={onExport}
                   className="p-2.5 bg-slate-500/5 hover:bg-orange-500/10 text-slate-400 hover:text-orange-500 rounded-xl transition-all border border-transparent hover:border-orange-500/20"
-                  title="Export Recipe"
+                  title={t('photoDetail.exportRecipe')}
                 >
                   <Share2 className="w-5 h-5" />
                 </button>
                 <button 
                   onClick={() => setShowDeleteConfirm(true)}
                   className="p-2.5 bg-slate-500/5 hover:bg-red-500/10 text-slate-400 hover:text-red-500 rounded-xl transition-all border border-transparent hover:border-red-500/20"
-                  title="Delete Photo"
+                  title={t('photoDetail.deletePhoto')}
                 >
                   <Trash2 className="w-5 h-5" />
                 </button>
@@ -230,16 +232,16 @@ export function PhotoDetailModal({
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Associated Recipe</h3>
+                  <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{t('photoDetail.associatedRecipe')}</h3>
                   {currentRecipe && (
-                    <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full">Active</span>
+                    <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full">{t('photoDetail.active')}</span>
                   )}
                 </div>
                 <div className="space-y-3">
                   <CustomSelect 
                     value={selectedRecipeId}
                     onChange={handleRecipeChange}
-                    placeholder="Select a recipe..."
+                    placeholder={t('photoDetail.selectRecipe')}
                     options={recipes.map(r => ({ label: r.name, value: r.id }))}
                     className="!rounded-xl"
                   />
@@ -262,12 +264,12 @@ export function PhotoDetailModal({
                 className="w-full py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
               >
                 <Sparkles className="w-4 h-4" />
-                AI Smart Recognition
+                {t('photoDetail.aiRecognition')}
               </button>
 
               <div className="space-y-8">
                 <div className="space-y-4">
-                  <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">EXIF Metadata</h3>
+                  <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{t('photoDetail.exifMetadata')}</h3>
                   <div className="grid grid-cols-3 gap-2">
                     <CompactExif icon={<HardDrive className="w-3 h-3" />} value={photo.cameraModel} />
                     <CompactExif icon={<ExternalLink className="w-3 h-3" />} value={photo.fNumber} />
@@ -280,32 +282,32 @@ export function PhotoDetailModal({
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Film Settings</h3>
+                    <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{t('photoDetail.filmSettings')}</h3>
                     <div className="px-3 py-1 bg-blue-500/10 text-blue-500 rounded-full text-[8px] font-black uppercase tracking-widest border border-blue-500/20">
                       {photo.filmMode || 'Provia'}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <FilmSettingCard label="White Balance" value={photo.whiteBalance} />
-                    <FilmSettingCard label="Dynamic Range" value={photo.dynamicRange} />
-                    <FilmSettingCard label="Highlight" value={photo.highlightTone} />
-                    <FilmSettingCard label="Shadow" value={photo.shadowTone} />
-                    <FilmSettingCard label="Color" value={photo.saturation} />
-                    <FilmSettingCard label="Sharpness" value={photo.sharpness} />
-                    <FilmSettingCard label="Noise Reduction" value={photo.noiseReduction} />
-                    <FilmSettingCard label="Clarity" value={photo.clarity} />
-                    <FilmSettingCard label="Grain Roughness" value={grainRoughness} />
-                    <FilmSettingCard label="Grain Size" value={grainSize} />
-                    <FilmSettingCard label="Color Chrome" value={photo.colorChromeEffect} />
-                    <FilmSettingCard label="FX Blue" value={photo.colorChromeEffectBlue} />
-                    <FilmSettingCard label="WB Red" value={wbRed} />
-                    <FilmSettingCard label="WB Blue" value={wbBlue} />
+                    <FilmSettingCard label={t('recipe.whiteBalance')} value={photo.whiteBalance} />
+                    <FilmSettingCard label={t('recipe.dynamicRange')} value={photo.dynamicRange} />
+                    <FilmSettingCard label={t('recipe.highlight')} value={photo.highlightTone} />
+                    <FilmSettingCard label={t('recipe.shadow')} value={photo.shadowTone} />
+                    <FilmSettingCard label={t('recipe.color')} value={photo.saturation} />
+                    <FilmSettingCard label={t('recipe.sharpness')} value={photo.sharpness} />
+                    <FilmSettingCard label={t('recipe.noiseReduction')} value={photo.noiseReduction} />
+                    <FilmSettingCard label={t('recipe.clarity')} value={photo.clarity} />
+                    <FilmSettingCard label={t('recipe.grainRoughness')} value={grainRoughness} />
+                    <FilmSettingCard label={t('recipe.grainSize')} value={grainSize} />
+                    <FilmSettingCard label={t('recipe.colorChrome')} value={photo.colorChromeEffect} />
+                    <FilmSettingCard label={t('recipe.fxBlue')} value={photo.colorChromeEffectBlue} />
+                    <FilmSettingCard label={t('recipe.wbRed')} value={wbRed} />
+                    <FilmSettingCard label={t('recipe.wbBlue')} value={wbBlue} />
                   </div>
                 </div>
               </div>
 
               <div className="space-y-4 pt-6 border-t border-[var(--border-color)]">
-                <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Tags</h3>
+                <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{t('photoDetail.tags')}</h3>
                 <div className="flex flex-wrap gap-1.5">
                   {photoTags.map(tag => (
                     <span 
@@ -352,7 +354,7 @@ export function PhotoDetailModal({
                 </div>
                 {!newTag && allTags.length > 0 && allTags.some(t => !photoTags.some(pt => pt.name === t.name)) && (
                   <div className="flex flex-wrap gap-1.5 pt-2">
-                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest w-full mb-1">Available Tags</span>
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest w-full mb-1">{t('photoDetail.availableTags')}</span>
                     {allTags.filter(t => !photoTags.some(pt => pt.name === t.name)).slice(0, 10).map(tag => (
                       <button
                         key={tag.id}
@@ -374,14 +376,14 @@ export function PhotoDetailModal({
                   className="flex-1 py-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-3 border border-[var(--border-color)]"
                 >
                   <Navigation className="w-5 h-5" />
-                  Locate File
+                  {t('photoDetail.locateFile')}
                 </button>
                 <button 
                   onClick={() => console.log('Opening original:', photo.filePath)}
                   className="flex-1 py-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-3 border border-[var(--border-color)]"
                 >
                   <ExternalLink className="w-5 h-5" />
-                  Original
+                  {t('photoDetail.openOriginal')}
                 </button>
               </div>
             </div>
@@ -392,9 +394,9 @@ export function PhotoDetailModal({
       <AnimatePresence>
         {showDeleteConfirm && (
           <ConfirmModal 
-            title="Delete Photo"
-            message={`Are you sure you want to delete "${photo.fileName}"? This action cannot be undone.`}
-            confirmLabel="Delete"
+            title={t('photoDetail.deleteConfirmTitle')}
+            message={t('photoDetail.deleteConfirmMessage')}
+            confirmLabel={t('recipe.delete')}
             onConfirm={handleDelete}
             onCancel={() => setShowDeleteConfirm(false)}
             variant="danger"

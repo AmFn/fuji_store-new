@@ -26,8 +26,23 @@ async function getExifDateTime(filePath) {
 
 const SUPPORTED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raf']);
 
-function isImageFile(filePath) {
-  return SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+const FORMAT_EXTENSIONS = {
+  JPG: ['.jpg', '.jpeg'],
+  RAF: ['.raf'],
+};
+
+function isImageFile(filePath, allowedFormats = null) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (!allowedFormats) {
+    return SUPPORTED_EXTENSIONS.has(ext);
+  }
+  for (const format of allowedFormats) {
+    const extensions = FORMAT_EXTENSIONS[format];
+    if (extensions && extensions.includes(ext)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function yieldToEventLoop() {
@@ -49,7 +64,7 @@ function quickFileHash(filePath, stats) {
   return crypto.createHash('sha1').update(sig).digest('hex');
 }
 
-async function* walkDirectory(rootDir, { recursive = true, signal } = {}) {
+async function* walkDirectory(rootDir, { recursive = true, signal, allowedFormats = null } = {}) {
   const stack = [rootDir];
 
   while (stack.length > 0) {
@@ -75,7 +90,7 @@ async function* walkDirectory(rootDir, { recursive = true, signal } = {}) {
         continue;
       }
 
-      if (entry.isFile() && isImageFile(fullPath)) {
+      if (entry.isFile() && isImageFile(fullPath, allowedFormats)) {
         yield { type: 'file', path: fullPath };
       }
     }
@@ -170,6 +185,7 @@ export class FileScanner {
       onProgress,
       onBatchIndexed,
       skipUnchanged = true,
+      allowedFormats = null,
     } = options;
 
     const normalizedRoot = normalizePath(rootPath);
@@ -191,7 +207,7 @@ export class FileScanner {
     };
 
     try {
-      for await (const event of walkDirectory(normalizedRoot, { recursive, signal })) {
+      for await (const event of walkDirectory(normalizedRoot, { recursive, signal, allowedFormats })) {
         if (event.type === 'error') {
           this.progress.failed += 1;
           this.progress.lastError = `${event.path}: ${event.error.message}`;

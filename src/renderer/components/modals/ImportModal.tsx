@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { CustomSelect } from '../common/CustomSelect';
 import { Photo, Folder } from '../../types';
 import { convertDbFolderToFolder } from '../../utils/fileUtils';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface User {
   uid: string;
@@ -24,6 +25,7 @@ interface ImportModalProps {
 }
 
 function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType, activeFolderId, folders }: ImportModalProps) {
+  const { t } = useLanguage();
   const [files, setFiles] = useState<File[]>([]);
   const [selectedLocalPaths, setSelectedLocalPaths] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
@@ -36,9 +38,27 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
     return uncategorized?.id || null;
   });
   const [folderPath, setFolderPath] = useState('');
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(['JPG']);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleFormat = (format: string) => {
+    setSelectedFormats(prev => {
+      if (prev.includes(format)) {
+        return prev.filter(f => f !== format);
+      }
+      return [...prev, format];
+    });
+  };
+
+  const toggleAllFormats = () => {
+    if (selectedFormats.length === 2) {
+      setSelectedFormats([]);
+    } else {
+      setSelectedFormats(['JPG', 'RAF']);
+    }
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -59,9 +79,12 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
   const handleImport = async () => {
     if (importMode === 'import' && files.length === 0 && selectedLocalPaths.length === 0 && !folderPath) return;
     if (importMode === 'create' && !folderName) return;
+    if (selectedFormats.length === 0) return;
 
     setImporting(true);
     setProgress(0);
+
+    const allowedFormats = selectedFormats.length === 2 ? null : selectedFormats;
 
     try {
       if (importMode === 'create') {
@@ -76,9 +99,7 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
           photoCount: 0
         };
         
-        // 保存到数据库
         if (window.electronAPI.createFolder) {
-          // 转换 parentId 为有效的整数，如果是字符串则转换为 null
           const parentId = selectedDestFolderId && !isNaN(Number(selectedDestFolderId)) ? Number(selectedDestFolderId) : null;
           const folderToCreate = {
             ...newFolder,
@@ -86,7 +107,6 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
           };
           const createdFolder = await window.electronAPI.createFolder(folderToCreate);
           
-          // 触发库更新事件，刷新文件夹列表
           if (window.electronAPI.triggerLibraryUpdate) {
             await window.electronAPI.triggerLibraryUpdate();
           }
@@ -96,33 +116,28 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
           }
         }
       } else {
-        // Import files
         if (window.electronAPI) {
           if (initialType === 'files') {
             if (files.length > 0) {
-              // Use electronAPI to import files
               await window.electronAPI.importFiles({
                 files: files.map(file => file.path),
                 targetFolderId: selectedDestFolderId
               });
             } else if (selectedLocalPaths.length > 0) {
-              // Use electronAPI to import files from local paths
               await window.electronAPI.importFiles({
                 files: selectedLocalPaths,
                 targetFolderId: selectedDestFolderId
               });
             }
           } else if (initialType === 'folders' && folderPath) {
-            // Use electronAPI to import folder
             const importedFolder = await window.electronAPI.importFolder({
               folderPath,
-              targetFolderId: selectedDestFolderId || null
+              targetFolderId: selectedDestFolderId || null,
+              allowedFormats
             });
             
             if (importedFolder) {
-              // 保存到数据库
               if (window.electronAPI.createFolder) {
-                // 转换 parentId 为有效的整数，如果是字符串则转换为 null
                 const parentId = selectedDestFolderId && !isNaN(Number(selectedDestFolderId)) ? Number(selectedDestFolderId) : null;
                 const folderToCreate = {
                   ...importedFolder,
@@ -139,7 +154,6 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
             }
           }
           
-          // 触发库更新事件，刷新照片列表
           if (window.electronAPI.triggerLibraryUpdate) {
             await window.electronAPI.triggerLibraryUpdate();
           }
@@ -183,9 +197,9 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
               {importMode === 'import' ? <Plus className="w-6 h-6 text-blue-500" /> : <FolderIcon className="w-6 h-6 text-blue-500" />}
             </div>
             <div>
-              <h2 className="text-2xl font-black tracking-tight">{importMode === 'import' ? 'Import System Folder' : 'Create Logical Folder'}</h2>
+              <h2 className="text-2xl font-black tracking-tight">{importMode === 'import' ? t('import.title') : t('import.createTitle')}</h2>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                {importMode === 'import' ? 'Select a directory to import JPG and RAF photos' : 'Add a new folder to your library structure'}
+                {importMode === 'import' ? t('import.selectDirectory') : t('import.addFolder')}
               </p>
             </div>
           </div>
@@ -204,7 +218,7 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                   importMode === 'create' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-slate-400 hover:text-slate-200"
                 )}
               >
-                Create Only
+                {t('import.createOnly')}
               </button>
               <button
                 onClick={() => setImportMode('import')}
@@ -213,7 +227,7 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                   importMode === 'import' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-slate-400 hover:text-slate-200"
                 )}
               >
-                Import System
+                {t('import.importSystem')}
               </button>
             </div>
           )}
@@ -221,7 +235,7 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
           {importMode === 'create' ? (
             <div className="space-y-6">
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Folder Name</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('import.folderName')}</label>
                 <input
                   type="text"
                   className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl px-6 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-bold"
@@ -231,11 +245,11 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                 />
               </div>
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Parent Folder</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('import.parentFolder')}</label>
                 <CustomSelect
                   value={selectedDestFolderId || ''}
                   onChange={(val) => setSelectedDestFolderId(val || null)}
-                  placeholder="Root Library"
+                  placeholder={t('import.rootLibrary')}
                   options={folders.map(f => ({ label: f.name, value: f.id }))}
                 />
               </div>
@@ -245,11 +259,51 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                 className="w-full py-5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
               >
                 <Check className="w-5 h-5" />
-                Create Folder
+                {t('import.createFolder')}
               </button>
             </div>
           ) : (
             <div className="space-y-8">
+              {initialType === 'folders' && (
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('import.importFormats')}</label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => toggleFormat('JPG')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all border",
+                        selectedFormats.includes('JPG') 
+                          ? "bg-blue-500 border-blue-500 text-white shadow-lg shadow-blue-500/20" 
+                          : "bg-slate-500/5 border-[var(--border-color)] text-slate-400 hover:border-blue-500/30"
+                      )}
+                    >
+                      JPG
+                    </button>
+                    <button
+                      onClick={() => toggleFormat('RAF')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all border",
+                        selectedFormats.includes('RAF') 
+                          ? "bg-blue-500 border-blue-500 text-white shadow-lg shadow-blue-500/20" 
+                          : "bg-slate-500/5 border-[var(--border-color)] text-slate-400 hover:border-blue-500/30"
+                      )}
+                    >
+                      RAF
+                    </button>
+                    <button
+                      onClick={toggleAllFormats}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all border",
+                        selectedFormats.length === 2 
+                          ? "bg-green-500 border-green-500 text-white shadow-lg shadow-green-500/20" 
+                          : "bg-slate-500/5 border-[var(--border-color)] text-slate-400 hover:border-green-500/30"
+                      )}
+                    >
+                      {t('filter.all')}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div
                 className={cn(
                   "border-4 border-dashed rounded-[2rem] p-12 flex flex-col items-center justify-center space-y-6 transition-all cursor-pointer",
@@ -269,11 +323,13 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                 <div className="text-center space-y-2">
                   <p className="font-black text-xl tracking-tight">
                     {(selectedLocalPaths.length > 0 || files.length > 0)
-                      ? `${selectedLocalPaths.length || files.length} items selected`
-                      : `Click to select ${initialType === 'files' ? 'photos' : 'folder'}`}
+                      ? `${selectedLocalPaths.length || files.length} ${t('import.itemsSelected')}`
+                      : `${t('import.clickToSelect')} ${initialType === 'files' ? t('import.photos') : t('import.folder')}`}
                   </p>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                    {initialType === 'files' ? 'Supports JPG and RAF formats' : 'All photos in the folder will be imported'}
+                    {initialType === 'files' ? t('import.supportsFormats') : initialType === 'folders' && selectedFormats.length > 0 
+                      ? `${t('import.willImport')} ${selectedFormats.join(' ' + t('import.and') + ' ')} ${t('import.files')}` 
+                      : t('import.allPhotosImported')}
                   </p>
                 </div>
                 <input
@@ -296,18 +352,17 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
               {(files.length > 0 || selectedLocalPaths.length > 0 || folderPath) && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between text-xs font-bold uppercase tracking-widest">
-                    <span className="text-slate-400">{selectedLocalPaths.length || files.length} files ready to import</span>
-                    <button onClick={() => { setFiles([]); setSelectedLocalPaths([]); setFolderPath(''); }} className="text-red-500 hover:text-red-600">Clear</button>
+                    <span className="text-slate-400">{selectedLocalPaths.length || files.length} {t('import.filesReadyToImport')}</span>
+                    <button onClick={() => { setFiles([]); setSelectedLocalPaths([]); setFolderPath(''); }} className="text-red-500 hover:text-red-600">{t('import.clear')}</button>
                   </div>
                   
-                  {/* Add target folder selection for file imports */}
                   {initialType === 'files' && (
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Target Folder</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('import.targetFolder')}</label>
                       <CustomSelect
                         value={selectedDestFolderId || ''}
                         onChange={(val) => setSelectedDestFolderId(val || null)}
-                        placeholder="Select target folder"
+                        placeholder={t('import.selectTargetFolder')}
                         options={folders.map(f => ({ label: f.name, value: f.id }))}
                       />
                     </div>
@@ -322,14 +377,21 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                           animate={{ width: `${progress}%` }}
                         />
                       </div>
-                      <p className="text-center text-xs font-bold text-slate-400 uppercase tracking-widest">Importing... {progress}%</p>
+                      <p className="text-center text-xs font-bold text-slate-400 uppercase tracking-widest">{t('import.importing')}... {progress}%</p>
                     </div>
                   ) : (
                     <button
                       onClick={handleImport}
-                      className="w-full py-5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                      disabled={initialType === 'folders' && selectedFormats.length === 0}
+                      className={cn(
+                        "w-full py-5 text-white rounded-2xl font-black shadow-lg transition-all flex items-center justify-center gap-3",
+                        (initialType === 'folders' && selectedFormats.length === 0)
+                          ? "bg-slate-500/50 cursor-not-allowed"
+                          : "bg-gradient-to-r from-blue-500 to-indigo-600 shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                      )}
                     >
-                      Start Import
+                      <Check className="w-5 h-5" />
+                      {t('import.startImport')}
                     </button>
                   )}
                 </div>

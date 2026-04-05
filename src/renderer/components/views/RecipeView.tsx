@@ -9,6 +9,7 @@ import { FilmTag } from '../common/FilmTag';
 import { FilmSettingCard } from '../common/FilmSettingCard';
 import { recipeService } from '../../services/recipeService';
 import { ConfirmModal } from '../modals/ConfirmModal';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface RecipeViewProps {
   recipes: Recipe[];
@@ -19,6 +20,7 @@ interface RecipeViewProps {
 }
 
 export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: RecipeViewProps) {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -128,7 +130,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
   const renderRecipeForm = (recipe: Partial<Recipe>, setRecipe: (r: Partial<Recipe>) => void, onSubmit: () => void, submitLabel: string) => (
     <div className="p-10 space-y-10 overflow-y-auto custom-scrollbar">
       <div className="space-y-3">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipe Name</label>
+        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.recipeName')}</label>
         <input 
           type="text" 
           className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl px-6 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-bold"
@@ -139,10 +141,10 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
       </div>
       
       <div className="space-y-3">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Description</label>
+        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.description')}</label>
         <textarea 
           className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl px-6 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-bold min-h-[80px]"
-          placeholder="Brief description of this recipe..."
+          placeholder={t('recipe.descriptionPlaceholder')}
           value={recipe.description || ''}
           onChange={e => setRecipe({ ...recipe, description: e.target.value })}
         />
@@ -151,7 +153,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="space-y-6">
           <div className="space-y-3">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Film Mode</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.filmMode')}</label>
             <CustomSelect 
               value={recipe.filmMode || ''}
               onChange={(val) => setRecipe({ ...recipe, filmMode: val })}
@@ -159,7 +161,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
             />
           </div>
           <div className="space-y-3">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">White Balance</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.whiteBalance')}</label>
             <input 
               type="text" 
               className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl px-6 py-4 focus:outline-none font-bold"
@@ -169,7 +171,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
             />
           </div>
           <div className="space-y-3">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">WB Shift (R, B)</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.wbShift')}</label>
             <input 
               type="text" 
               className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl px-6 py-4 focus:outline-none font-bold"
@@ -179,22 +181,22 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
             />
           </div>
           <Slider 
-            label="Sharpness" 
+            label={t('recipe.sharpness')} 
             value={Number(recipe.sharpness || 0)} 
             onChange={(val) => setRecipe({ ...recipe, sharpness: val.toString() })} 
           />
           <Slider 
-            label="Color" 
+            label={t('recipe.color')} 
             value={Number(recipe.saturation || 0)} 
             onChange={(val) => setRecipe({ ...recipe, saturation: val.toString() })} 
           />
           <Slider 
-            label="Noise Reduction" 
+            label={t('recipe.noiseReduction')} 
             value={Number(recipe.noiseReduction || 0)} 
             onChange={(val) => setRecipe({ ...recipe, noiseReduction: val.toString() })} 
           />
           <Slider 
-            label="Clarity" 
+            label={t('recipe.clarity')} 
             value={Number(recipe.clarity || 0)} 
             onChange={(val) => setRecipe({ ...recipe, clarity: val.toString() })} 
           />
@@ -202,32 +204,32 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
 
         <div className="space-y-6">
           <Slider 
-            label="Highlight" 
+            label={t('recipe.highlight')} 
             value={Number(recipe.highlightTone || 0)} 
             onChange={(val) => setRecipe({ ...recipe, highlightTone: val.toString() })} 
           />
           <Slider 
-            label="Shadow" 
+            label={t('recipe.shadow')} 
             value={Number(recipe.shadowTone || 0)} 
             onChange={(val) => setRecipe({ ...recipe, shadowTone: val.toString() })} 
           />
           <Slider 
-            label="Contrast" 
+            label={t('recipe.contrast')} 
             value={Number(recipe.contrast || 0)} 
             onChange={(val) => setRecipe({ ...recipe, contrast: val.toString() })} 
           />
           <Switch 
-            label="Chrome FX" 
+            label={t('recipe.chromeFX')} 
             checked={recipe.colorChromeEffect === 'On'} 
             onChange={(val) => setRecipe({ ...recipe, colorChromeEffect: val ? 'On' : 'Off' })} 
           />
           <Switch 
-            label="FX Blue" 
+            label={t('recipe.fxBlue')} 
             checked={recipe.colorChromeEffectBlue === 'On'} 
             onChange={(val) => setRecipe({ ...recipe, colorChromeEffectBlue: val ? 'On' : 'Off' })} 
           />
           <div className="space-y-3">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Grain Effect (Roughness, Size)</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.grainEffect')}</label>
             <input 
               type="text" 
               className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl px-6 py-4 focus:outline-none font-bold"
@@ -245,7 +247,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
     return (
       <div className="h-full flex items-center justify-center">
         <div className="py-20 text-center text-xs font-black uppercase tracking-widest text-slate-400">
-          Loading recipes...
+          {t('recipe.loading')}
         </div>
       </div>
     );
@@ -255,15 +257,15 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
     <div className="h-full flex flex-col space-y-10">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 flex-shrink-0">
         <div>
-          <h2 className="text-3xl font-black tracking-tight">Film Recipes</h2>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Manage your custom film simulations</p>
+          <h2 className="text-3xl font-black tracking-tight">{t('recipe.title')}</h2>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{t('recipe.subtitle')}</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="relative group flex-1 md:w-64">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
             <input 
               type="text" 
-              placeholder="Search recipes..."
+              placeholder={t('recipe.searchPlaceholder')}
               className="w-full bg-slate-500/5 border border-[var(--border-color)] rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -274,7 +276,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
             className="bg-blue-500 text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20 hover:scale-105 active:scale-95"
           >
             <Plus className="w-5 h-5" />
-            New
+            {t('recipe.new')}
           </button>
         </div>
       </div>
@@ -289,12 +291,12 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
               <div className="w-20 h-20 bg-slate-500/5 rounded-full flex items-center justify-center">
                 <Film className="w-10 h-10 opacity-20" />
               </div>
-              <p className="font-medium">No recipes found</p>
+              <p className="font-medium">{t('recipe.noRecipesFound')}</p>
               <button 
                 onClick={() => { resetForm(); setIsCreating(true); }}
                 className="text-blue-500 hover:underline"
               >
-                Create your first recipe
+                {t('recipe.createFirst')}
               </button>
             </div>
           ) : (
@@ -332,10 +334,10 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
 
                 <div className="pt-6 border-t border-[var(--border-color)] flex items-center justify-between">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    {photos.filter(p => p.recipeId === recipe.id).length} photos
+                    {photos.filter(p => p.recipeId === recipe.id).length} {t('recipe.photos')}
                   </span>
                   <div className="flex items-center gap-2 text-blue-500">
-                    <span className="text-[10px] font-black uppercase tracking-widest">Details</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">{t('recipe.details')}</span>
                     <ChevronRight className="w-4 h-4" />
                   </div>
                 </div>
@@ -371,7 +373,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
                         <span className="px-3 py-1 bg-blue-500/10 text-blue-500 rounded-full text-[10px] font-black uppercase tracking-widest">
                           {selectedRecipe.filmMode}
                         </span>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Created by you</span>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.createdByYou')}</span>
                       </div>
                     </div>
                   </div>
@@ -400,20 +402,20 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
 
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                   {[
-                    { label: 'White Balance', value: selectedRecipe.whiteBalance },
-                    { label: 'Dynamic Range', value: selectedRecipe.dynamicRange },
-                    { label: 'Highlight', value: selectedRecipe.highlightTone },
-                    { label: 'Shadow', value: selectedRecipe.shadowTone },
-                    { label: 'Color', value: selectedRecipe.saturation },
-                    { label: 'Sharpness', value: selectedRecipe.sharpness },
-                    { label: 'Noise Reduction', value: selectedRecipe.noiseReduction },
-                    { label: 'Clarity', value: selectedRecipe.clarity },
-                    { label: 'Grain Roughness', value: grainRoughness },
-                    { label: 'Grain Size', value: grainSize },
-                    { label: 'Color Chrome', value: selectedRecipe.colorChromeEffect },
-                    { label: 'FX Blue', value: selectedRecipe.colorChromeEffectBlue },
-                    { label: 'WB Red', value: wbRed },
-                    { label: 'WB Blue', value: wbBlue },
+                    { label: t('recipe.whiteBalance'), value: selectedRecipe.whiteBalance },
+                    { label: t('recipe.dynamicRange'), value: selectedRecipe.dynamicRange },
+                    { label: t('recipe.highlight'), value: selectedRecipe.highlightTone },
+                    { label: t('recipe.shadow'), value: selectedRecipe.shadowTone },
+                    { label: t('recipe.color'), value: selectedRecipe.saturation },
+                    { label: t('recipe.sharpness'), value: selectedRecipe.sharpness },
+                    { label: t('recipe.noiseReduction'), value: selectedRecipe.noiseReduction },
+                    { label: t('recipe.clarity'), value: selectedRecipe.clarity },
+                    { label: t('recipe.grainRoughness'), value: grainRoughness },
+                    { label: t('recipe.grainSize'), value: grainSize },
+                    { label: t('recipe.colorChrome'), value: selectedRecipe.colorChromeEffect },
+                    { label: t('recipe.fxBlue'), value: selectedRecipe.colorChromeEffectBlue },
+                    { label: t('recipe.wbRed'), value: wbRed },
+                    { label: t('recipe.wbBlue'), value: wbBlue },
                   ].map(stat => (
                     <FilmSettingCard key={stat.label} label={stat.label} value={stat.value} />
                   ))}
@@ -421,8 +423,8 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
 
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Photos using this recipe</h3>
-                    <button className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline">View All</button>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t('recipe.photosUsingRecipe')}</h3>
+                    <button className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline">{t('recipe.viewAll')}</button>
                   </div>
                   <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
                     {recipePhotos.slice(0, 5).map(photo => (
@@ -435,7 +437,7 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
                     ))}
                     {recipePhotos.length === 0 && (
                       <div className="col-span-full py-10 text-center border-2 border-dashed border-slate-500/10 rounded-3xl">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No photos yet</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('recipe.noPhotosYet')}</p>
                       </div>
                     )}
                   </div>
@@ -456,19 +458,19 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
               className="glass w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-[2.5rem] shadow-2xl flex flex-col"
             >
               <div className="p-8 border-b border-[var(--border-color)] flex items-center justify-between flex-shrink-0">
-                <h2 className="text-2xl font-black tracking-tight">New Recipe</h2>
+                <h2 className="text-2xl font-black tracking-tight">{t('recipe.newRecipe')}</h2>
                 <button onClick={() => setIsCreating(false)} className="p-2 hover:bg-slate-500/10 rounded-2xl transition-all">
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              {renderRecipeForm(newRecipe, setNewRecipe, handleCreate, 'Create Recipe')}
+              {renderRecipeForm(newRecipe, setNewRecipe, handleCreate, t('recipe.createRecipe'))}
               <div className="p-8 border-t border-[var(--border-color)] flex-shrink-0">
                 <button 
                   onClick={handleCreate}
                   disabled={!newRecipe.name}
                   className="w-full py-5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Create Recipe
+                  {t('recipe.createRecipe')}
                 </button>
               </div>
             </motion.div>
@@ -484,19 +486,19 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
               className="glass w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-[2.5rem] shadow-2xl flex flex-col"
             >
               <div className="p-8 border-b border-[var(--border-color)] flex items-center justify-between flex-shrink-0">
-                <h2 className="text-2xl font-black tracking-tight">Edit Recipe</h2>
+                <h2 className="text-2xl font-black tracking-tight">{t('recipe.editRecipe')}</h2>
                 <button onClick={() => setEditingRecipe(null)} className="p-2 hover:bg-slate-500/10 rounded-2xl transition-all">
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              {renderRecipeForm(editingRecipe, setEditingRecipe, handleUpdate, 'Save Changes')}
+              {renderRecipeForm(editingRecipe, (r) => setEditingRecipe(prev => prev ? { ...prev, ...r } : null), handleUpdate, t('recipe.saveChanges'))}
               <div className="p-8 border-t border-[var(--border-color)] flex-shrink-0">
                 <button 
                   onClick={handleUpdate}
                   disabled={!editingRecipe.name}
                   className="w-full py-5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Changes
+                  {t('recipe.saveChanges')}
                 </button>
               </div>
             </motion.div>
@@ -505,9 +507,9 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
 
         {showDeleteConfirm && (
           <ConfirmModal 
-            title="Delete Recipe"
-            message="Are you sure you want to delete this recipe? This action cannot be undone."
-            confirmLabel="Delete"
+            title={t('recipe.deleteRecipe')}
+            message={t('recipe.deleteConfirm')}
+            confirmLabel={t('recipe.delete')}
             onConfirm={() => handleDelete(showDeleteConfirm)}
             onCancel={() => setShowDeleteConfirm(null)}
             variant="danger"

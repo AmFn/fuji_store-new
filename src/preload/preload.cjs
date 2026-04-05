@@ -62,8 +62,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickFiles: () => ipcRenderer.invoke('dialog:pick-files'),
 
   // 扫描文件夹
-  scanFolder: (folderPath, watch = true) =>
-    ipcRenderer.invoke('scanDirectory', folderPath).catch(() =>
+  scanFolder: (folderPath, watch = true, allowedFormats = null) =>
+    ipcRenderer.invoke('scanDirectory', folderPath, allowedFormats).catch(() =>
       ipcRenderer.invoke('library:scan-folder', { folderPath, watch })
     ),
 
@@ -139,6 +139,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 获取缩略图缓存目录
   getThumbnailDir: () => ipcRenderer.invoke('app:get-thumbnail-dir'),
+  setThumbnailDir: (dir) => ipcRenderer.invoke('app:set-thumbnail-dir', dir),
   clearThumbnailCache: () => ipcRenderer.invoke('app:clear-thumbnail-cache'),
 
   // 获取所有标签
@@ -161,10 +162,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   
   // 导入文件夹
-  importFolder: ({ folderPath, targetFolderId }) => {
-    console.log('[Preload] importFolder called with:', folderPath, targetFolderId);
-    return ipcRenderer.invoke('scanDirectory', folderPath).then(() => {
-      // 扫描完成后，创建一个文件夹对象返回
+  importFolder: ({ folderPath, targetFolderId, allowedFormats = null }) => {
+    console.log('[Preload] importFolder called with:', folderPath, targetFolderId, allowedFormats);
+    return ipcRenderer.invoke('scanDirectory', folderPath, allowedFormats).then(() => {
       return {
         name: path.basename(folderPath),
         path: folderPath,

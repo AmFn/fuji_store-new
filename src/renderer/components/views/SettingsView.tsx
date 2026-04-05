@@ -1,51 +1,38 @@
 import React, { useState } from 'react';
-import { Sun, Moon, Trash2, RotateCcw, Check, X } from 'lucide-react';
-import { Folder } from '../../types';
+import { Sun, Moon, Trash2, RotateCcw, Check, X, FolderOpen } from 'lucide-react';
 import { ConfirmModal } from '../modals/ConfirmModal';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface SettingsViewProps {
   theme: string;
   setTheme: (t: 'light' | 'dark') => void;
-  folders: Folder[];
-  setFolders: React.Dispatch<React.SetStateAction<Folder[]>>;
   cloudSyncEnabled: boolean;
   setCloudSyncEnabled: (v: boolean) => void;
-  onFoldersChanged: React.Dispatch<React.SetStateAction<Folder[]>>;
+  thumbnailDir?: string;
+  onCacheDirChange?: (dir: string) => void;
 }
 
 export function SettingsView({ 
   theme, 
   setTheme, 
-  folders, 
-  setFolders,
   cloudSyncEnabled,
   setCloudSyncEnabled,
-  onFoldersChanged
+  thumbnailDir,
+  onCacheDirChange
 }: SettingsViewProps) {
-  const [showRemoveFolderConfirm, setShowRemoveFolderConfirm] = useState<{ show: boolean, folderId: string }>({ show: false, folderId: '' });
+  const { t, language, setLanguage } = useLanguage();
   const [showClearPhotosConfirm, setShowClearPhotosConfirm] = useState<boolean>(false);
+  const [cacheDir, setCacheDir] = useState<string>(thumbnailDir || '');
 
-  const toggleSubfolders = async (id: string) => {
-    const target = folders.find((f) => f.id === id);
-    if (!target) return;
-    const next = !target.includeSubfolders;
-    if (window.electronAPI?.updateFolder) {
-      await window.electronAPI.updateFolder({ id, includeSubfolders: next });
+  const handleSelectCacheDir = async () => {
+    if (!window.electronAPI?.pickFolder) return;
+    const dir = await window.electronAPI.pickFolder();
+    if (dir) {
+      setCacheDir(dir);
+      if (onCacheDirChange) {
+        onCacheDirChange(dir);
+      }
     }
-    onFoldersChanged(prev => prev.map(f => f.id === id ? { ...f, includeSubfolders: next } : f));
-  };
-
-  const removeFolder = async (id: string) => {
-    setShowRemoveFolderConfirm({ show: true, folderId: id });
-  };
-
-  const handleRemoveFolderConfirm = async () => {
-    const folderId = showRemoveFolderConfirm.folderId;
-    if (window.electronAPI?.deleteFolder) {
-      await window.electronAPI.deleteFolder(folderId);
-    }
-    onFoldersChanged(prev => prev.filter(f => f.id !== folderId));
-    setShowRemoveFolderConfirm({ show: false, folderId: '' });
   };
 
   const handleClearPhotos = () => {
@@ -70,20 +57,19 @@ export function SettingsView({
   return (
     <div className="space-y-12">
       <div>
-        <h2 className="text-4xl font-black tracking-tighter mb-6">Settings</h2>
+        <h2 className="text-4xl font-black tracking-tighter mb-6">{t('settings.title')}</h2>
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-10">
-          Customize your Fuji Store experience
+          {t('settings.subtitle')}
         </p>
 
         <div className="space-y-8">
-          {/* General Settings */}
           <section className="glass-card rounded-3xl p-6">
-            <h3 className="text-xl font-bold mb-6">General</h3>
+            <h3 className="text-xl font-bold mb-6">{t('settings.general')}</h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="font-semibold">Theme</h4>
-                  <p className="text-xs text-slate-400">Choose your preferred theme</p>
+                  <h4 className="font-semibold">{t('settings.theme')}</h4>
+                  <p className="text-xs text-slate-400">{t('settings.themeDesc')}</p>
                 </div>
                 <button 
                   onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -95,8 +81,29 @@ export function SettingsView({
 
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="font-semibold">Cloud Sync</h4>
-                  <p className="text-xs text-slate-400">Sync your photos and recipes across devices</p>
+                  <h4 className="font-semibold">{t('settings.language')}</h4>
+                  <p className="text-xs text-slate-400">{t('settings.languageDesc')}</p>
+                </div>
+                <div className="flex items-center gap-2 bg-slate-500/5 border border-[var(--border-color)] rounded-xl p-1">
+                  <button 
+                    onClick={() => setLanguage('zh')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${language === 'zh' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                    中文
+                  </button>
+                  <button 
+                    onClick={() => setLanguage('en')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${language === 'en' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                    English
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-semibold">{t('settings.cloudSync')}</h4>
+                  <p className="text-xs text-slate-400">{t('settings.cloudSyncDesc')}</p>
                 </div>
                 <button 
                   onClick={() => setCloudSyncEnabled(!cloudSyncEnabled)}
@@ -111,56 +118,35 @@ export function SettingsView({
             </div>
           </section>
 
-          {/* Folders */}
           <section className="glass-card rounded-3xl p-6">
-            <h3 className="text-xl font-bold mb-6">Folders</h3>
+            <h3 className="text-xl font-bold mb-6">{t('settings.cacheDirectory')}</h3>
             <div className="space-y-4">
-              {folders.map(folder => {
-                const isUncategorized = folder.name === '未分类';
-                return (
-                  <div key={folder.id} className="flex items-center justify-between p-4 border border-[var(--border-color)] rounded-2xl">
-                    <div>
-                      <h4 className="font-semibold">{folder.name}</h4>
-                      <p className="text-xs text-slate-400">{folder.path}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {!isUncategorized && (
-                        <button 
-                          onClick={() => toggleSubfolders(folder.id)}
-                          className={folder.includeSubfolders 
-                            ? "px-4 py-2 rounded-xl bg-blue-500 text-white text-xs font-bold transition-all"
-                            : "px-4 py-2 rounded-xl bg-slate-500/5 border border-[var(--border-color)] text-xs font-bold transition-all"
-                          }
-                        >
-                          {folder.includeSubfolders ? 'Include Subfolders' : 'Exclude Subfolders'}
-                        </button>
-                      )}
-                      {!isUncategorized && (
-                        <button 
-                          onClick={() => removeFolder(folder.id)}
-                          className="p-2 hover:bg-red-500/10 rounded-xl transition-all"
-                        >
-                          <Trash2 className="w-4 h-4 text-slate-300 hover:text-red-500 transition-all" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <h4 className="font-semibold">{t('settings.currentCacheDirectory')}</h4>
+                  <p className="text-xs text-slate-400 truncate">{cacheDir || t('settings.cacheDirectoryDesc')}</p>
+                </div>
+                <button 
+                  onClick={handleSelectCacheDir}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-500 rounded-xl text-xs font-bold hover:bg-blue-500/20 transition-all"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  {t('settings.selectCacheDirectory')}
+                </button>
+              </div>
             </div>
           </section>
 
-          {/* Maintenance */}
           <section className="glass-card rounded-3xl p-6">
-            <h3 className="text-xl font-bold mb-6">Maintenance</h3>
+            <h3 className="text-xl font-bold mb-6">{t('settings.maintenance')}</h3>
             <div className="space-y-4">
               <button 
                 onClick={clearCache}
                 className="w-full flex items-center justify-between p-4 border border-[var(--border-color)] rounded-2xl hover:bg-slate-500/5 transition-all"
               >
                 <div>
-                  <h4 className="font-semibold">Clear Thumbnail Cache</h4>
-                  <p className="text-xs text-slate-400">Free up disk space by clearing cached thumbnails</p>
+                  <h4 className="font-semibold">{t('settings.clearThumbnailCache')}</h4>
+                  <p className="text-xs text-slate-400">{t('settings.clearThumbnailCacheDesc')}</p>
                 </div>
                 <RotateCcw className="w-5 h-5 text-slate-400" />
               </button>
@@ -170,8 +156,8 @@ export function SettingsView({
                 className="w-full flex items-center justify-between p-4 border border-red-500/20 rounded-2xl hover:bg-red-500/5 transition-all text-red-500"
               >
                 <div>
-                  <h4 className="font-semibold">Clear All Photos</h4>
-                  <p className="text-xs">Remove all photos from your library</p>
+                  <h4 className="font-semibold">{t('settings.clearAllPhotos')}</h4>
+                  <p className="text-xs">{t('settings.clearAllPhotosDesc')}</p>
                 </div>
                 <Trash2 className="w-5 h-5" />
               </button>
@@ -180,29 +166,16 @@ export function SettingsView({
         </div>
       </div>
 
-      {/* Confirm Modals */}
-      <React.Fragment>
-        {showRemoveFolderConfirm.show && (
-          <ConfirmModal 
-            title="删除文件夹"
-            message="确定要删除此文件夹吗？此操作无法撤销。"
-            confirmLabel="删除"
-            onConfirm={handleRemoveFolderConfirm}
-            onCancel={() => setShowRemoveFolderConfirm({ show: false, folderId: '' })}
-            variant="danger"
-          />
-        )}
-        {showClearPhotosConfirm && (
-          <ConfirmModal 
-            title="清空所有照片"
-            message="确定要清空所有照片吗？此操作无法撤销。"
-            confirmLabel="清空"
-            onConfirm={handleClearPhotosConfirm}
-            onCancel={() => setShowClearPhotosConfirm(false)}
-            variant="danger"
-          />
-        )}
-      </React.Fragment>
+      {showClearPhotosConfirm && (
+        <ConfirmModal 
+          title="清空所有照片"
+          message="确定要清空所有照片吗？此操作无法撤销。"
+          confirmLabel="清空"
+          onConfirm={handleClearPhotosConfirm}
+          onCancel={() => setShowClearPhotosConfirm(false)}
+          variant="danger"
+        />
+      )}
     </div>
   );
 }
