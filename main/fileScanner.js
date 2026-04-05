@@ -254,6 +254,8 @@ export class FileScanner {
       this.progress.finishedAt = Date.now();
       if (onProgress) await onProgress(this.getProgress());
       throw error;
+    } finally {
+      this.running = false;
     }
   }
 
