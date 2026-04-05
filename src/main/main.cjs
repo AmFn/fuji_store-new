@@ -25,7 +25,8 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    // 开发服务器运行在3003端口（因为3000-3002端口被占用）
+    mainWindow.loadURL('http://localhost:3003');
   } else {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }

@@ -5,8 +5,8 @@
   "main": "src/main/main.cjs",
   "type": "module",
   "scripts": {
-    "start": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "start": "concurrently \"npm run dev\" \"wait-on http://localhost:3003 && cross-env NODE_ENV=development electron .\"",
+    "dev": "vite --port=3003 --host=0.0.0.0",
     "build": "vite build",
     "clean": "rimraf dist",
     "lint": "tsc --noEmit",

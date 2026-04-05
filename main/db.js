@@ -394,6 +394,15 @@ export class PhotoDatabase {
     const sql = this.stmts.getPhotosSql
       .replace('__ORDER_FIELD__', sortBy)
       .replace('__ORDER_DIRECTION__', sortDirection);
+    
+    // 打印SQL语句
+    console.log('SQL Query:', sql);
+    console.log('Parameters:', {
+      deleted: includeDeleted ? 1 : 0,
+      limit: safePageSize,
+      offset: (safePage - 1) * safePageSize,
+    });
+    
     const stmt = this.db.prepare(sql);
 
     const rows = stmt.all({
@@ -401,6 +410,14 @@ export class PhotoDatabase {
       limit: safePageSize,
       offset: (safePage - 1) * safePageSize,
     });
+    
+    // 打印查询结果
+    console.log('Query Result:', {
+      total: rows.length,
+      page: safePage,
+      pageSize: safePageSize,
+    });
+    
     const total = this.stmts.countPhotos.get(includeDeleted ? 1 : 0)?.total ?? 0;
 
     return {
