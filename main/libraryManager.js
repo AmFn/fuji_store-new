@@ -41,6 +41,7 @@ export class LibraryManager extends EventEmitter {
   }
 
   constructor({ db, scanner, watcher, thumbnailQueue }) {
+    super(); // 调用父类构造函数
     this.db = db;
     this.scanner = scanner;
     this.watcher = watcher;
