@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Edit3, Share2, Film, Eye, ChevronRight, X, Trash2, Image as ImageIcon, ChevronLeft, RefreshCw } from 'lucide-react';
+import { Plus, Search, Edit3, Share2, Film, Eye, ChevronRight, X, Trash2, Image as ImageIcon, ChevronLeft, ChevronDown, RefreshCw } from 'lucide-react';
 import { Recipe, Photo, User } from '../../types';
 import { FILM_MODES } from '../../constants/filmModes';
 import { cn } from '../../lib/utils';
@@ -39,6 +39,29 @@ const DEFAULT_RECIPE_FORM: Partial<Recipe> = {
   isFavorite: false,
 };
 
+const CAROUSEL_ASPECT_OPTIONS = [
+  { key: '1:1', label: '1:1', ratio: 1, className: 'aspect-square' },
+  { key: '5:4', label: '5:4', ratio: 5 / 4, className: 'aspect-[5/4]' },
+  { key: '4:3', label: '4:3', ratio: 4 / 3, className: 'aspect-[4/3]' },
+  { key: '7:6', label: '7:6', ratio: 7 / 6, className: 'aspect-[7/6]' },
+  { key: '3:2', label: '3:2', ratio: 3 / 2, className: 'aspect-[3/2]' },
+  { key: '16:10', label: '16:10', ratio: 16 / 10, className: 'aspect-[16/10]' },
+  { key: '16:9', label: '16:9', ratio: 16 / 9, className: 'aspect-[16/9]' },
+  { key: '17:9', label: '17:9', ratio: 17 / 9, className: 'aspect-[17/9]' },
+  { key: '2:1', label: '2:1', ratio: 2 / 1, className: 'aspect-[2/1]' },
+  { key: '65:24', label: '65:24', ratio: 65 / 24, className: 'aspect-[65/24]' },
+];
+
+const getClosestAspectOption = (width: number, height: number) => {
+  if (!width || !height) return CAROUSEL_ASPECT_OPTIONS.find((o) => o.key === '3:2') || CAROUSEL_ASPECT_OPTIONS[0];
+  const target = width / height;
+  return CAROUSEL_ASPECT_OPTIONS.reduce((best, current) => {
+    const bestDiff = Math.abs(best.ratio - target);
+    const currentDiff = Math.abs(current.ratio - target);
+    return currentDiff < bestDiff ? current : best;
+  }, CAROUSEL_ASPECT_OPTIONS[0]);
+};
+
 export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: RecipeViewProps) {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
@@ -53,6 +76,9 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [lockedRecipeDetailId, setLockedRecipeDetailId] = useState<string | null>(null);
+  const [selectedAspectKey, setSelectedAspectKey] = useState<string>('3:2');
+  const [aspectManuallyChanged, setAspectManuallyChanged] = useState(false);
+  const [aspectOptionsExpanded, setAspectOptionsExpanded] = useState(false);
   const getDefaultRecipeForm = (): Partial<Recipe> => ({
     ...DEFAULT_RECIPE_FORM,
     ownerId: user?.uid || 'local',
@@ -147,6 +173,8 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
 
   const selectedRecipe = recipes.find(r => r.id === selectedRecipeId) || detailRecipe;
   const recipePhotos = selectedRecipeId ? (recipePhotosMap[selectedRecipeId] || []) : [];
+  const firstCarouselImage = recipePhotos[0]?.thumbnailUrl || '';
+  const activeAspectOption = CAROUSEL_ASPECT_OPTIONS.find((o) => o.key === selectedAspectKey) || CAROUSEL_ASPECT_OPTIONS[4];
   const carouselRef = useRef<HTMLDivElement>(null);
   
   const scrollCarousel = (direction: 'left' | 'right') => {
@@ -243,6 +271,21 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
     if (selectedRecipeId === lockedRecipeDetailId) return;
     setSelectedRecipeId(lockedRecipeDetailId);
   }, [lockedRecipeDetailId, selectedRecipeId]);
+
+  useEffect(() => {
+    setAspectManuallyChanged(false);
+    setAspectOptionsExpanded(false);
+  }, [selectedRecipeId]);
+
+  useEffect(() => {
+    if (!firstCarouselImage || aspectManuallyChanged) return;
+    const img = new Image();
+    img.onload = () => {
+      const closest = getClosestAspectOption(img.naturalWidth, img.naturalHeight);
+      setSelectedAspectKey(closest.key);
+    };
+    img.src = firstCarouselImage;
+  }, [firstCarouselImage, aspectManuallyChanged]);
 
   useEffect(() => {
     if (!selectedRecipeId) {
@@ -595,8 +638,43 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
                   {/* Carousel Section */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
                     <div className="lg:col-span-7 space-y-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all flex items-center gap-1.5 whitespace-nowrap bg-blue-500 border-blue-500 text-white shadow-lg shadow-blue-500/20 scale-105"
+                          >
+                            <div className="w-1 h-1 rounded-full bg-white" />
+                            {activeAspectOption.label}
+                          </button>
+                          <button
+                            onClick={() => setAspectOptionsExpanded((v) => !v)}
+                            className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all flex items-center gap-1.5 whitespace-nowrap bg-slate-500/5 border-[var(--border-color)] text-slate-400 hover:border-blue-500/30 hover:bg-slate-500/10"
+                          >
+                            其他比例
+                            <ChevronDown className={cn("w-3 h-3 transition-transform", aspectOptionsExpanded && "rotate-180")} />
+                          </button>
+                        </div>
+                        {aspectOptionsExpanded && (
+                          <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar-hide">
+                            {CAROUSEL_ASPECT_OPTIONS.filter((opt) => opt.key !== selectedAspectKey).map((opt) => (
+                              <button
+                                key={opt.key}
+                                onClick={() => {
+                                  setSelectedAspectKey(opt.key);
+                                  setAspectManuallyChanged(true);
+                                  setAspectOptionsExpanded(false);
+                                }}
+                                className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all flex items-center gap-1.5 whitespace-nowrap bg-slate-500/5 border-[var(--border-color)] text-slate-400 hover:border-blue-500/30 hover:bg-slate-500/10"
+                              >
+                                <div className="w-1 h-1 rounded-full bg-slate-400" />
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       {allImages.length > 0 ? (
-                        <div className="relative h-[420px] rounded-[2.5rem] overflow-hidden group/carousel shadow-2xl">
+                        <div className={cn("relative rounded-[2.5rem] overflow-hidden group/carousel shadow-2xl", activeAspectOption.className)}>
                           <div 
                             ref={carouselRef}
                             className="flex h-full overflow-x-auto snap-x snap-mandatory custom-scrollbar-hide"
