@@ -41,8 +41,10 @@ function quickHash(filePath, stats) {
   return crypto.createHash('sha1').update(`${filePath}|${stats.size}|${Math.floor(stats.mtimeMs)}`).digest('hex');
 }
 
-async function scanFilesDirect(filePaths) {
+async function scanFilesDirect(filePaths, targetFolderId) {
   if (!libraryManager) throw new Error('LibraryManager not initialized');
+  const parsedFolderId = Number(targetFolderId);
+  const folderId = Number.isFinite(parsedFolderId) ? parsedFolderId : null;
   const rows = [];
   for (const fp of filePaths || []) {
     try {
@@ -50,6 +52,7 @@ async function scanFilesDirect(filePaths) {
       rows.push({
         path: normalizePath(fp),
         hash: quickHash(normalizePath(fp), st),
+        folder_id: folderId,
         size: st.size,
         width: 0,
         height: 0,
@@ -137,8 +140,8 @@ app.whenReady().then(async () => {
     const result = await libraryManager.scanDirectory(folderPath, { watch });
     return { success: true, ...result };
   });
-  ipcMain.handle('library:scan-files', async (_e, { filePaths }) => {
-    const result = await scanFilesDirect(filePaths);
+  ipcMain.handle('library:scan-files', async (_e, { filePaths, targetFolderId }) => {
+    const result = await scanFilesDirect(filePaths, targetFolderId);
     return { success: true, ...result };
   });
   ipcMain.handle('library:get-photos', async (_e, { page = 1, pageSize = 120 }) => {
@@ -232,6 +235,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:open-folder-path', async (_e, { folderPath }) => {
     const result = await shell.openPath(folderPath);
     return result ? { success: false, error: result } : { success: true };
+  });
+  
+  // 触发库更新事件
+  ipcMain.handle('library:trigger-update', async (_e) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('library:updated', { type: 'manual:update' });
+    }
+    return { success: true };
   });
 
   createWindow();

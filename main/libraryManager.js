@@ -70,6 +70,14 @@ export class LibraryManager extends EventEmitter {
       },
     });
 
+    const physicalFolderId = await this.db.getPhysicalFolderIdByPath(root);
+    if (physicalFolderId) {
+      await this.db.assignFolderToPath(physicalFolderId, root, {
+        includeSubfolders: true,
+        onlyWhenUnassigned: true,
+      });
+    }
+
     if (watch) {
       await this.watcher.watchDirectory(root);
     }
@@ -140,6 +148,14 @@ export class LibraryManager extends EventEmitter {
     return this.db.getAllFolders();
   }
 
+  async assignFolderByPath(folderId, folderPath, includeSubfolders = true) {
+    const assigned = await this.db.assignFolderToPath(folderId, folderPath, {
+      includeSubfolders: Boolean(includeSubfolders),
+      onlyWhenUnassigned: false,
+    });
+    return { assigned };
+  }
+
   getScanProgress() {
     return this.scanProgress;
   }
@@ -183,6 +199,9 @@ export function registerLibraryIpc(ipcMain, manager) {
   ipcMain.handle('library:update-folder-v2', async (_evt, folder) => manager.updateFolder(folder));
   ipcMain.handle('library:delete-folder-v2', async (_evt, folderId) => manager.deleteFolder(folderId));
   ipcMain.handle('library:get-all-folders-v2', async () => manager.getAllFolders());
+  ipcMain.handle('library:assign-folder-by-path', async (_evt, { folderId, folderPath, includeSubfolders = true }) =>
+    manager.assignFolderByPath(folderId, folderPath, includeSubfolders)
+  );
   ipcMain.handle('clearAllPhotos', async () => manager.clearAllPhotos());
   
 

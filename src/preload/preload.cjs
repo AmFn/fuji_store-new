@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const path = require('node:path');
 
 /**
  * Electron Preload 脚本
@@ -132,6 +133,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('library:updated', wrapped);
     };
   },
+  
+  // 触发库更新事件
+  triggerLibraryUpdate: () => ipcRenderer.invoke('library:trigger-update'),
 
   // 获取缩略图缓存目录
   getThumbnailDir: () => ipcRenderer.invoke('app:get-thumbnail-dir'),
@@ -154,6 +158,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scanFolderAllFiles: (folderPath) => {
     console.log('[Preload] scanFolderAllFiles called with:', folderPath);
     return ipcRenderer.invoke('library:scan-folder-all-files', { folderPath });
+  },
+  
+  // 导入文件夹
+  importFolder: ({ folderPath, targetFolderId }) => {
+    console.log('[Preload] importFolder called with:', folderPath, targetFolderId);
+    return ipcRenderer.invoke('scanDirectory', folderPath).then(() => {
+      // 扫描完成后，创建一个文件夹对象返回
+      return {
+        name: path.basename(folderPath),
+        path: folderPath,
+        type: 'physical',
+        parentId: targetFolderId || null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        photoCount: 0
+      };
+    });
+  },
+  
+  // 导入文件
+  importFiles: ({ files, targetFolderId }) => {
+    console.log('[Preload] importFiles called with:', files.length, 'files', targetFolderId);
+    return ipcRenderer.invoke('library:scan-files', { filePaths: files, targetFolderId }).then(() => {
+      // 扫描完成后，返回一个空数组，因为我们会通过 triggerLibraryUpdate 刷新照片列表
+      return [];
+    });
   },
 
   // 获取日期分组信息
@@ -189,6 +219,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         return [];
       })
     ),
+
+  assignFolderByPath: (folderId, folderPath, includeSubfolders = true) =>
+    ipcRenderer.invoke('library:assign-folder-by-path', { folderId, folderPath, includeSubfolders }),
 
   // 清空所有照片
   clearAllPhotos: () =>

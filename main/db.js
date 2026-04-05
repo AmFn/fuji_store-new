@@ -20,9 +20,12 @@ function toIntBool(value) {
 
 function normalizePhotoRecord(photo) {
   const now = Date.now();
+  const folderIdRaw = photo.folder_id ?? photo.folderId ?? null;
+  const folderId = folderIdRaw === null || folderIdRaw === undefined || folderIdRaw === '' ? null : Number(folderIdRaw);
   return {
     path: normalizePath(photo.path),
     hash: photo.hash ?? '',
+    folder_id: Number.isFinite(folderId) ? folderId : null,
     size: Number(photo.size ?? 0),
     width: Number(photo.width ?? 0),
     height: Number(photo.height ?? 0),
@@ -97,6 +100,7 @@ export class PhotoDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         path TEXT NOT NULL UNIQUE,
         hash TEXT NOT NULL,
+        folder_id INTEGER,
         size INTEGER NOT NULL,
         width INTEGER NOT NULL DEFAULT 0,
         height INTEGER NOT NULL DEFAULT 0,
@@ -163,7 +167,7 @@ export class PhotoDatabase {
 
     this.stmts.upsertPhoto = this.db.prepare(`
       INSERT INTO photos (
-        path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted,
+        path, hash, folder_id, size, width, height, created_at, updated_at, thumbnail_status, deleted,
         film_mode, dynamic_range, color_chrome, color_chrome_blue, color_chrome_red,
         grain_effect, grain_effect_rough, highlight_tone, shadow_tone, tone,
         color, sharpness, clarity, noise_reduction, high_iso_noise_reduction,
@@ -172,7 +176,7 @@ export class PhotoDatabase {
         focus_mode, focus_area, af_point, flash_fired, flash_mode,
         lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location
       ) VALUES (
-        @path, @hash, @size, @width, @height, @created_at, @updated_at, @thumbnail_status, @deleted,
+        @path, @hash, @folder_id, @size, @width, @height, @created_at, @updated_at, @thumbnail_status, @deleted,
         @film_mode, @dynamic_range, @color_chrome, @color_chrome_blue, @color_chrome_red,
         @grain_effect, @grain_effect_rough, @highlight_tone, @shadow_tone, @tone,
         @color, @sharpness, @clarity, @noise_reduction, @high_iso_noise_reduction,
@@ -183,6 +187,7 @@ export class PhotoDatabase {
       )
       ON CONFLICT(path) DO UPDATE SET
         hash = excluded.hash,
+        folder_id = COALESCE(excluded.folder_id, photos.folder_id),
         size = excluded.size,
         width = excluded.width,
         height = excluded.height,
@@ -229,7 +234,7 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotoByPath = this.db.prepare(`
-      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted,
+      SELECT id, path, hash, folder_id, size, width, height, created_at, updated_at, thumbnail_status, deleted,
         film_mode, dynamic_range, color_chrome, color_chrome_blue, color_chrome_red,
         grain_effect, grain_effect_rough, highlight_tone, shadow_tone, tone,
         color, sharpness, clarity, noise_reduction, high_iso_noise_reduction,
@@ -248,7 +253,7 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotosSql = `
-      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted,
+      SELECT id, path, hash, folder_id, size, width, height, created_at, updated_at, thumbnail_status, deleted,
         film_mode, dynamic_range, color_chrome, color_chrome_blue, color_chrome_red,
         grain_effect, grain_effect_rough, highlight_tone, shadow_tone, tone,
         color, sharpness, clarity, noise_reduction, high_iso_noise_reduction,
@@ -284,6 +289,7 @@ export class PhotoDatabase {
       UPDATE photos
       SET
         hash = COALESCE(@hash, hash),
+        folder_id = COALESCE(@folder_id, folder_id),
         size = COALESCE(@size, size),
         width = COALESCE(@width, width),
         height = COALESCE(@height, height),
@@ -371,7 +377,7 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotosByDay = this.db.prepare(`
-      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+      SELECT id, path, hash, folder_id, size, width, height, created_at, updated_at, thumbnail_status, deleted
       FROM photos
       WHERE deleted = 0
         AND strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') = @dayKey
@@ -419,6 +425,24 @@ export class PhotoDatabase {
       FROM folders
       ORDER BY id ASC
     `);
+
+    this.stmts.findPhysicalFolderByPath = this.db.prepare(`
+      SELECT id
+      FROM folders
+      WHERE folder_type = 'physical' AND path = ?
+      ORDER BY id ASC
+      LIMIT 1
+    `);
+
+    this.stmts.findLogicalFolderByNameAndParent = this.db.prepare(`
+      SELECT id
+      FROM folders
+      WHERE folder_type = 'logical'
+        AND lower(name) = lower(?)
+        AND IFNULL(parent_id, -1) = IFNULL(?, -1)
+      ORDER BY id ASC
+      LIMIT 1
+    `);
   }
 
   #detectCompatibility() {
@@ -440,6 +464,7 @@ export class PhotoDatabase {
       CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(hash);
       CREATE INDEX IF NOT EXISTS idx_photos_updated_at ON photos(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_photos_deleted ON photos(deleted);
+      CREATE INDEX IF NOT EXISTS idx_photos_folder_id ON photos(folder_id);
     `);
 
     const folderCols = this.db.prepare("PRAGMA table_info(folders)").all();
@@ -488,6 +513,9 @@ export class PhotoDatabase {
     }
     if (!photoSet.has('height')) {
       this.db.exec('ALTER TABLE photos ADD COLUMN height INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!photoSet.has('folder_id')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN folder_id INTEGER');
     }
 
     // 添加富士相机参数相关的列
@@ -714,10 +742,23 @@ export class PhotoDatabase {
   async createFolder(folder) {
     const now = Date.now();
     const folderType = folder.folder_type || folder.type || (folder.path ? 'physical' : 'logical');
+    const normalizedPath = folder.path ? normalizePath(folder.path) : null;
+    const parentId = folder.parent_id ?? folder.parentId ?? null;
+
+    if (folderType === 'physical' && normalizedPath) {
+      const existing = this.stmts.findPhysicalFolderByPath.get(normalizedPath);
+      if (existing?.id) return Number(existing.id);
+    }
+
+    if (folderType === 'logical' && folder.name) {
+      const existing = this.stmts.findLogicalFolderByNameAndParent.get(folder.name, parentId);
+      if (existing?.id) return Number(existing.id);
+    }
+
     const payload = {
       name: folder.name,
-      path: folder.path ? normalizePath(folder.path) : null,
-      parent_id: folder.parent_id ?? folder.parentId ?? null,
+      path: normalizedPath,
+      parent_id: parentId,
       folder_type: folderType,
       include_subfolders: folder.include_subfolders === undefined
         ? toIntBool(folder.includeSubfolders ?? true)
@@ -754,14 +795,57 @@ export class PhotoDatabase {
     return result.changes;
   }
 
+  async getPhysicalFolderIdByPath(folderPath) {
+    const normalized = normalizePath(folderPath);
+    const row = this.stmts.findPhysicalFolderByPath.get(normalized);
+    return row?.id ? Number(row.id) : null;
+  }
+
+  async assignFolderToPath(folderId, folderPath, { includeSubfolders = true, onlyWhenUnassigned = false } = {}) {
+    const normalized = normalizePath(folderPath);
+    const safeFolderId = Number(folderId);
+    if (!Number.isFinite(safeFolderId)) return 0;
+
+    const conditions = ['deleted = 0'];
+    const params = {
+      folderId: safeFolderId,
+      updatedAt: Date.now(),
+      folderPath: normalized,
+      prefixPath: `${normalized}/%`,
+    };
+
+    if (includeSubfolders) {
+      conditions.push('(path = @folderPath OR path LIKE @prefixPath)');
+    } else {
+      conditions.push('path GLOB @directPattern');
+      params.directPattern = `${normalized}/*`;
+    }
+
+    if (onlyWhenUnassigned) {
+      conditions.push('(folder_id IS NULL OR folder_id = 0)');
+    }
+
+    const sql = `
+      UPDATE photos
+      SET folder_id = @folderId, updated_at = @updatedAt
+      WHERE ${conditions.join(' AND ')}
+    `;
+
+    const result = this.db.prepare(sql).run(params);
+    return result.changes;
+  }
+
   async getAllFolders() {
     return this.stmts.getAllFolders.all();
   }
 
   async updatePhotoByPath(filePath, patch) {
+    const folderIdRaw = patch.folder_id ?? patch.folderId ?? null;
+    const folderId = folderIdRaw === null || folderIdRaw === undefined || folderIdRaw === '' ? null : Number(folderIdRaw);
     const payload = {
       path: normalizePath(filePath),
       hash: patch.hash ?? null,
+      folder_id: Number.isFinite(folderId) ? folderId : null,
       size: patch.size ?? null,
       width: patch.width ?? null,
       height: patch.height ?? null,
@@ -803,6 +887,12 @@ export class PhotoDatabase {
     if (this.compat.hasTagsJson && patch.tags !== undefined) {
       parts.push('tags_json = @tags_json');
       params.tags_json = JSON.stringify(Array.isArray(patch.tags) ? patch.tags : []);
+    }
+    if (patch.folderId !== undefined || patch.folder_id !== undefined) {
+      const folderIdRaw = patch.folder_id ?? patch.folderId;
+      const folderId = folderIdRaw === null || folderIdRaw === '' ? null : Number(folderIdRaw);
+      parts.push('folder_id = @folder_id');
+      params.folder_id = Number.isFinite(folderId) ? folderId : null;
     }
 
     parts.push('updated_at = @updated_at');

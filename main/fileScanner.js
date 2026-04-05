@@ -211,6 +211,11 @@ export class FileScanner {
               this.progress.skipped += 1;
               continue;
             }
+            // 如果文件被软删除，跳过，不恢复
+            if (existing && existing.deleted === 1) {
+              this.progress.skipped += 1;
+              continue;
+            }
           }
 
           const record = await this.#buildRecord(normalizedPath);
@@ -302,24 +307,22 @@ export class FileScanner {
           // 检查文件是否已经在数据库中且未被删除
           const stats = await fsp.stat(normalizedPath);
           const existing = await this.db.getPhotoByPath(normalizedPath);
-          if (existing && existing.deleted === 0) {
+          // 如果文件不存在，或者已被软删除，视为新文件
+          if (!existing || existing.deleted === 1) {
+            // 构建文件记录
+            const record = await this.#buildRecord(normalizedPath);
+            newFiles.push({
+              id: crypto.randomUUID(),
+              fileName: path.basename(normalizedPath),
+              path: normalizedPath,
+              size: `${(record.size / (1024 * 1024)).toFixed(1)} MB`,
+              date: new Date(record.created_at).toISOString().split('T')[0],
+              filmMode: 'Unknown' // 实际项目中应该从EXIF或其他来源获取
+            });
+          } else {
+            // 文件已存在且未被删除，跳过
             this.progress.skipped += 1;
-            continue;
           }
-          // 如果文件被软删除，也视为新文件，不跳过
-          // 即使文件被软删除，也要将其添加到新文件列表中，以便用户可以重新添加
-
-
-          // 构建文件记录
-          const record = await this.#buildRecord(normalizedPath);
-          newFiles.push({
-            id: crypto.randomUUID(),
-            fileName: path.basename(normalizedPath),
-            path: normalizedPath,
-            size: `${(record.size / (1024 * 1024)).toFixed(1)} MB`,
-            date: new Date(record.created_at).toISOString().split('T')[0],
-            filmMode: 'Unknown' // 实际项目中应该从EXIF或其他来源获取
-          });
         } catch (error) {
           this.progress.failed += 1;
           this.progress.lastError = `${normalizedPath}: ${error.message}`;
