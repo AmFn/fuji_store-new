@@ -2867,7 +2867,8 @@ function TimelineView({ photos, onPhotoClick, onSearchDate }: {
     return photos.reduce((acc, p) => {
       const d = new Date(p.dateTime || '');
       const year = d.getFullYear().toString();
-      const dateKey = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      // 使用YYYY-MM-DD格式作为日期键，确保按天正确分组
+      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       
       if (!acc[year]) acc[year] = {};
       if (!acc[year][dateKey]) acc[year][dateKey] = [];
@@ -3031,6 +3032,8 @@ function TimelineView({ photos, onPhotoClick, onSearchDate }: {
           const items = item.items;
           const isExpanded = expandedDates.has(date);
           const isDateCollapsed = collapsedDates.has(date);
+          // 将YYYY-MM-DD格式的日期转换为更友好的显示格式
+          const displayDate = new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
           return (
             <div className="relative pl-14 pr-8 py-6 bg-[var(--bg-primary)]">
@@ -3041,7 +3044,7 @@ function TimelineView({ photos, onPhotoClick, onSearchDate }: {
                 >
                   <div className="w-3 h-3 rounded-full bg-blue-500/30 group-hover/date:bg-blue-500 transition-colors" />
                   <div className="flex flex-col">
-                    <h3 className="text-lg font-black tracking-tight text-slate-600 dark:text-slate-300 group-hover/date:text-blue-500 transition-colors">{date}</h3>
+                    <h3 className="text-lg font-black tracking-tight text-slate-600 dark:text-slate-300 group-hover/date:text-blue-500 transition-colors">{displayDate}</h3>
                     {(() => {
                       const locations = Array.from(new Set(items.map(p => p.location).filter(Boolean)));
                       if (locations.length > 0) {
@@ -3066,9 +3069,8 @@ function TimelineView({ photos, onPhotoClick, onSearchDate }: {
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        const d = new Date(date);
-                        const filterDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                        onSearchDate(filterDateStr);
+                        // 直接使用date变量，因为它已经是YYYY-MM-DD格式
+                        onSearchDate(date);
                       }}
                       className="p-2 hover:bg-blue-500/10 rounded-xl text-blue-500 transition-all group/jump"
                       title="View in Gallery"
