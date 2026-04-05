@@ -126,6 +126,7 @@ export default function App() {
   const [tagSearchQuery, setTagSearchQuery] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
   
   // Recipes state - 后续可以从服务层获取
   
