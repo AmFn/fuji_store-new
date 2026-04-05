@@ -185,4 +185,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         return [];
       })
     ),
+
+  // 清空所有照片
+  clearAllPhotos: () =>
+    ipcRenderer.invoke('clearAllPhotos').catch(err => {
+      console.error('clearAllPhotos error:', err);
+      return { deleted: 0 };
+    }),
 });

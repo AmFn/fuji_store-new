@@ -1770,11 +1770,11 @@ function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSel
             style={{ left: contextMenu.x, top: contextMenu.y }}
             className="fixed z-[100] w-48 glass-card rounded-2xl shadow-2xl border border-[var(--border-color)] overflow-hidden p-1.5"
           >
-            <ContextMenuItem icon={<Edit2 className="w-3.5 h-3.5" />} label="Rename" onClick={() => onRename(contextMenu.folderId)} />
-            <ContextMenuItem icon={<Plus className="w-3.5 h-3.5" />} label="Add Photos" onClick={() => onAddFiles(contextMenu.folderId)} />
-            <ContextMenuItem icon={<FolderPlus className="w-3.5 h-3.5" />} label="New Subfolder" onClick={() => onAddSubfolder(contextMenu.folderId)} />
+            <ContextMenuItem icon={<Edit2 className="w-3.5 h-3.5" />} label="Rename" onClick={() => onRename(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
+            <ContextMenuItem icon={<Plus className="w-3.5 h-3.5" />} label="Add Photos" onClick={() => onAddFiles(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
+            <ContextMenuItem icon={<FolderPlus className="w-3.5 h-3.5" />} label="New Subfolder" onClick={() => onAddSubfolder(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
             <div className="h-px bg-[var(--border-color)] my-1.5 mx-2" />
-            <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="Delete" onClick={() => { void onDeleteFolder(contextMenu.folderId); }} danger />
+            <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="Delete" onClick={() => { void onDeleteFolder(contextMenu.folderId); }} danger onClose={() => setContextMenu(null)} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -1782,12 +1782,15 @@ function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSel
   );
 }
 
-function ContextMenuItem({ icon, label, onClick, danger }: { icon: React.ReactNode, label: string, onClick: () => void, danger?: boolean }) {
+function ContextMenuItem({ icon, label, onClick, danger, onClose }: { icon: React.ReactNode, label: string, onClick: () => void, danger?: boolean, onClose?: () => void }) {
   return (
     <button 
       onClick={(e) => {
         e.stopPropagation();
         onClick();
+        if (onClose) {
+          onClose();
+        }
       }}
       className={cn(
         "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all",
@@ -3940,10 +3943,22 @@ function SettingsView({
       <section className="space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Cache Management</h3>
-          <button onClick={() => { void clearCache(); }} className="text-xs font-black text-blue-500 hover:text-blue-600 uppercase tracking-widest flex items-center gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Clear All Cache
-          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={() => { void clearCache(); }} className="text-xs font-black text-blue-500 hover:text-blue-600 uppercase tracking-widest flex items-center gap-2">
+              <RefreshCw className="w-4 h-4" />
+              Clear All Cache
+            </button>
+            <button onClick={() => {
+              if (confirm('Are you sure you want to clear all photos? This action cannot be undone.')) {
+                if (window.electronAPI?.clearAllPhotos) {
+                  window.electronAPI.clearAllPhotos();
+                }
+              }
+            }} className="text-xs font-black text-red-500 hover:text-red-600 uppercase tracking-widest flex items-center gap-2">
+              <Trash2 className="w-4 h-4" />
+              Clear All Photos
+            </button>
+          </div>
         </div>
         <div className="glass-card p-8 rounded-3xl space-y-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">

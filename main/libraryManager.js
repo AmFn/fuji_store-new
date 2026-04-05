@@ -152,6 +152,10 @@ export class LibraryManager {
     await this.thumbnailQueue.onIdle();
     this.db.close();
   }
+
+  async clearAllPhotos() {
+    return this.db.clearAllPhotos();
+  }
 }
 
 export function registerLibraryIpc(ipcMain, manager) {
@@ -166,4 +170,5 @@ export function registerLibraryIpc(ipcMain, manager) {
   ipcMain.handle('library:update-folder-v2', async (_evt, folder) => manager.updateFolder(folder));
   ipcMain.handle('library:delete-folder-v2', async (_evt, folderId) => manager.deleteFolder(folderId));
   ipcMain.handle('library:get-all-folders-v2', async () => manager.getAllFolders());
+  ipcMain.handle('clearAllPhotos', async () => manager.clearAllPhotos());
 }
