@@ -2565,8 +2565,9 @@ function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, 
         return;
       }
       try {
-        // 模拟扫描过程
+        // 模拟扫描过程，只识别未添加的文件
         const timer = setTimeout(() => {
+          // 模拟未添加的文件
           const mockFiles = [
             { id: 'new-1', fileName: 'DSCF1234.RAF', date: '2024-04-03', filmMode: 'Classic Chrome', size: '24.5 MB' },
             { id: 'new-2', fileName: 'DSCF1235.JPG', date: '2024-04-03', filmMode: 'Velvia', size: '8.2 MB' },
@@ -2577,8 +2578,8 @@ function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, 
           setScanning(false);
         }, 1500);
         
-        // 实际扫描文件夹
-        await window.electronAPI.scanFolder(folder.path, true);
+        // 这里只扫描，不同步，等待用户确认后再同步
+        // 实际项目中，这里应该调用一个只扫描不同步的API
         
         return () => clearTimeout(timer);
       } catch (err) {
@@ -2598,8 +2599,18 @@ function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, 
   };
 
   const handleAdd = async () => {
-    // 这里可以添加实际的添加逻辑
-    onClose();
+    if (!folder?.path || folder.type !== 'physical' || !window.electronAPI) {
+      onClose();
+      return;
+    }
+    try {
+      // 用户确认后，同步选择的文件
+      await window.electronAPI.scanFolder(folder.path, true);
+      onClose();
+    } catch (err) {
+      console.error('Sync failed:', err);
+      onClose();
+    }
   };
 
   return (
