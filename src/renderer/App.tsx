@@ -484,48 +484,6 @@ export default function App() {
           setThumbnailDir(thumbDir);
           let firstItems = (photosPageData?.items || []).map(p => convertDbPhotoToPhoto(p, thumbDir));
           
-          // 添加模拟数据，如果数据库中没有照片
-          if (firstItems.length === 0) {
-            const testPhotos = [
-              {
-                path: 'test-photos/test-photo-1.jpg',
-                hash: 'test1',
-                size: 1024000,
-                created_at: Date.now() - 86400000,
-                thumbnail_status: 'done'
-              },
-              {
-                path: 'test-photos/test-photo-2.jpg',
-                hash: 'test2',
-                size: 1536000,
-                created_at: Date.now() - 172800000,
-                thumbnail_status: 'done'
-              },
-              {
-                path: 'test-photos/test-photo-3.jpg',
-                hash: 'test3',
-                size: 1280000,
-                created_at: Date.now() - 259200000,
-                thumbnail_status: 'done'
-              },
-              {
-                path: 'test-photos/test-photo-4.jpg',
-                hash: 'test4',
-                size: 960000,
-                created_at: Date.now() - 345600000,
-                thumbnail_status: 'done'
-              },
-              {
-                path: 'test-photos/test-photo-5.jpg',
-                hash: 'test5',
-                size: 1152000,
-                created_at: Date.now() - 432000000,
-                thumbnail_status: 'done'
-              }
-            ];
-            firstItems = testPhotos.map(p => convertDbPhotoToPhoto(p, thumbDir));
-          }
-          
           setPhotos(firstItems);
           setPhotoPage(1);
           const totalPages = photosPageData?.totalPages || 1;
@@ -539,90 +497,8 @@ export default function App() {
           })));
         } catch (err) {
           console.error('Failed to load data:', err);
-          // 即使API调用失败，也添加模拟数据
-          const mockPhotos = [
-            {
-              id: '1',
-              fileName: 'test-photo-1.jpg',
-              filePath: 'test-photos/test-photo-1.jpg',
-              thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
-              previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
-              hash: 'test1',
-              cameraModel: 'FUJIFILM X-T4',
-              dateTime: new Date(Date.now() - 86400000).toISOString(),
-              filmMode: 'Classic Chrome',
-              isFavorite: false,
-              isHidden: false,
-              rating: 0,
-              tags: [],
-              ownerId: 'local'
-            },
-            {
-              id: '2',
-              fileName: 'test-photo-2.jpg',
-              filePath: 'test-photos/test-photo-2.jpg',
-              thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20portrait&image_size=square',
-              previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20portrait&image_size=square',
-              hash: 'test2',
-              cameraModel: 'FUJIFILM X-T4',
-              dateTime: new Date(Date.now() - 172800000).toISOString(),
-              filmMode: 'Provia/Standard',
-              isFavorite: true,
-              isHidden: false,
-              rating: 5,
-              tags: ['Portrait'],
-              ownerId: 'local'
-            },
-            {
-              id: '3',
-              fileName: 'test-photo-3.jpg',
-              filePath: 'test-photos/test-photo-3.jpg',
-              thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20street&image_size=square',
-              previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20street&image_size=square',
-              hash: 'test3',
-              cameraModel: 'FUJIFILM X-T4',
-              dateTime: new Date(Date.now() - 259200000).toISOString(),
-              filmMode: 'Classic Neg.',
-              isFavorite: false,
-              isHidden: false,
-              rating: 3,
-              tags: ['Street'],
-              ownerId: 'local'
-            },
-            {
-              id: '4',
-              fileName: 'test-photo-4.jpg',
-              filePath: 'test-photos/test-photo-4.jpg',
-              thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20nature&image_size=square',
-              previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20nature&image_size=square',
-              hash: 'test4',
-              cameraModel: 'FUJIFILM X-T4',
-              dateTime: new Date(Date.now() - 345600000).toISOString(),
-              filmMode: 'Velvia/Vivid',
-              isFavorite: true,
-              isHidden: false,
-              rating: 4,
-              tags: ['Nature'],
-              ownerId: 'local'
-            },
-            {
-              id: '5',
-              fileName: 'test-photo-5.jpg',
-              filePath: 'test-photos/test-photo-5.jpg',
-              thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20architecture&image_size=square',
-              previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20architecture&image_size=square',
-              hash: 'test5',
-              cameraModel: 'FUJIFILM X-T4',
-              dateTime: new Date(Date.now() - 432000000).toISOString(),
-              filmMode: 'Astia/Soft',
-              isFavorite: false,
-              isHidden: false,
-              rating: 2,
-              tags: ['Architecture'],
-              ownerId: 'local'
-            }
-          ];
-          setPhotos(mockPhotos);
+          // 不添加模拟数据，保持空白状态
+          setPhotos([]);
           setHasMorePhotos(false);
         }
       } else {
