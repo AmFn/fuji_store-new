@@ -75,6 +75,14 @@ export class LibraryManager extends EventEmitter {
     return result;
   }
 
+  async scanDirectoryForNewFiles(dirPath) {
+    const root = normalizePath(dirPath);
+    const result = await this.scanner.scanDirectoryForNewFiles(root, {
+      recursive: true
+    });
+    return result;
+  }
+
   async getPhotos(page, pageSize) {
     return this.db.getPhotos(page, pageSize, {
       includeDeleted: false,
@@ -163,6 +171,7 @@ export class LibraryManager extends EventEmitter {
 
 export function registerLibraryIpc(ipcMain, manager) {
   ipcMain.handle('scanDirectory', async (_evt, targetPath) => manager.scanDirectory(targetPath, { watch: true }));
+  ipcMain.handle('scanDirectoryForNewFiles', async (_evt, targetPath) => manager.scanDirectoryForNewFiles(targetPath));
   ipcMain.handle('getPhotos', async (_evt, page, pageSize) => manager.getPhotos(page, pageSize));
   ipcMain.handle('getScanProgress', async () => manager.getScanProgress());
   ipcMain.handle('resyncLibrary', async () => manager.resyncLibrary());

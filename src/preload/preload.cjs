@@ -66,6 +66,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('library:scan-folder', { folderPath, watch })
     ),
 
+  // 扫描文件夹获取未添加的文件列表
+  scanDirectoryForNewFiles: (folderPath) =>
+    ipcRenderer.invoke('scanDirectoryForNewFiles', folderPath),
+
   // 扫描文件列表
   scanFiles: (filePaths) => 
     ipcRenderer.invoke('library:scan-files', { filePaths }),

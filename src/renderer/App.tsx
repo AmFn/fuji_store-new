@@ -2565,23 +2565,12 @@ function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, 
         return;
       }
       try {
-        // 模拟扫描过程，只识别未添加的文件
-        const timer = setTimeout(() => {
-          // 模拟未添加的文件
-          const mockFiles = [
-            { id: 'new-1', fileName: 'DSCF1234.RAF', date: '2024-04-03', filmMode: 'Classic Chrome', size: '24.5 MB' },
-            { id: 'new-2', fileName: 'DSCF1235.JPG', date: '2024-04-03', filmMode: 'Velvia', size: '8.2 MB' },
-            { id: 'new-3', fileName: 'DSCF1236.RAF', date: '2024-04-04', filmMode: 'Classic Neg', size: '25.1 MB' },
-          ];
-          setNewFiles(mockFiles);
-          setSelectedFiles(new Set(mockFiles.map(f => f.id)));
-          setScanning(false);
-        }, 1500);
-        
-        // 这里只扫描，不同步，等待用户确认后再同步
-        // 实际项目中，这里应该调用一个只扫描不同步的API
-        
-        return () => clearTimeout(timer);
+        // 实际扫描文件夹，获取未添加的文件列表
+        const result = await window.electronAPI.scanDirectoryForNewFiles(folder.path);
+        const newFiles = result?.newFiles || [];
+        setNewFiles(newFiles);
+        setSelectedFiles(new Set(newFiles.map(f => f.id)));
+        setScanning(false);
       } catch (err) {
         console.error('Scan failed:', err);
         setNewFiles([]);

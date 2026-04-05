@@ -254,6 +254,90 @@ export class FileScanner {
       this.progress.finishedAt = Date.now();
       if (onProgress) await onProgress(this.getProgress());
       throw error;
+    }
+
+  async scanDirectoryForNewFiles(rootPath, options = {}) {
+    if (this.running) {
+      throw new Error('Scan already in progress');
+    }
+
+    const { recursive = true, signal } = options;
+    const normalizedRoot = normalizePath(rootPath);
+    const newFiles = [];
+    const seenPaths = new Set();
+
+    this.running = true;
+    this.progress = {
+      status: 'running',
+      rootPath: normalizedRoot,
+      scanned: 0,
+      indexed: 0,
+      skipped: 0,
+      failed: 0,
+      startedAt: Date.now(),
+      finishedAt: null,
+      lastError: null,
+    };
+
+    try {
+      for await (const event of walkDirectory(normalizedRoot, { recursive, signal })) {
+        if (event.type === 'error') {
+          this.progress.failed += 1;
+          this.progress.lastError = `${event.path}: ${event.error.message}`;
+          continue;
+        }
+
+        const normalizedPath = normalizePath(event.path);
+        if (seenPaths.has(normalizedPath)) {
+          this.progress.skipped += 1;
+          continue;
+        }
+        seenPaths.add(normalizedPath);
+        this.progress.scanned += 1;
+
+        try {
+          // 检查文件是否已经在数据库中
+          const stats = await fsp.stat(normalizedPath);
+          const existing = await this.db.getPhotoByPath(normalizedPath);
+          if (existing && existing.deleted === 0) {
+            this.progress.skipped += 1;
+            continue;
+          }
+
+          // 构建文件记录
+          const record = await this.#buildRecord(normalizedPath);
+          newFiles.push({
+            id: crypto.randomUUID(),
+            fileName: path.basename(normalizedPath),
+            path: normalizedPath,
+            size: `${(record.size / (1024 * 1024)).toFixed(1)} MB`,
+            date: new Date(record.created_at).toISOString().split('T')[0],
+            filmMode: 'Unknown' // 实际项目中应该从EXIF或其他来源获取
+          });
+        } catch (error) {
+          this.progress.failed += 1;
+          this.progress.lastError = `${normalizedPath}: ${error.message}`;
+          continue;
+        }
+      }
+
+      this.progress.status = 'done';
+      this.progress.finishedAt = Date.now();
+
+      return {
+        ...this.getProgress(),
+        newFiles,
+        durationMs: this.progress.finishedAt - this.progress.startedAt,
+      };
+    } catch (error) {
+      if (error.message === 'SCAN_ABORTED') {
+        this.progress.status = 'cancelled';
+      } else {
+        this.progress.status = 'error';
+        this.progress.lastError = error.message;
+      }
+      this.progress.finishedAt = Date.now();
+      throw error;
     } finally {
       this.running = false;
     }
