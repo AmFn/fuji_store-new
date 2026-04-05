@@ -453,6 +453,53 @@ export class PhotoDatabase {
       this.db.exec('ALTER TABLE photos ADD COLUMN height INTEGER NOT NULL DEFAULT 0');
     }
 
+    // 添加富士相机参数相关的列
+    const fujiColumns = [
+      'film_mode TEXT',
+      'dynamic_range TEXT',
+      'color_chrome TEXT',
+      'color_chrome_blue TEXT',
+      'color_chrome_red TEXT',
+      'grain_effect TEXT',
+      'grain_effect_rough TEXT',
+      'highlight_tone TEXT',
+      'shadow_tone TEXT',
+      'tone TEXT',
+      'color TEXT',
+      'sharpness TEXT',
+      'clarity TEXT',
+      'noise_reduction TEXT',
+      'high_iso_noise_reduction TEXT',
+      'iso INTEGER',
+      'aperture REAL',
+      'shutter_speed TEXT',
+      'exposure_compensation REAL',
+      'exposure_mode TEXT',
+      'metering_mode TEXT',
+      'white_balance TEXT',
+      'white_balance_mode TEXT',
+      'white_balance_temperature INTEGER',
+      'white_balance_tint REAL',
+      'focus_mode TEXT',
+      'focus_area TEXT',
+      'af_point TEXT',
+      'flash_fired INTEGER',
+      'flash_mode TEXT',
+      'lens_model TEXT',
+      'lens_make TEXT',
+      'focal_length REAL',
+      'focal_length_35mm INTEGER',
+      'camera_model TEXT',
+      'location TEXT'
+    ];
+
+    for (const columnDef of fujiColumns) {
+      const columnName = columnDef.split(' ')[0];
+      if (!photoSet.has(columnName)) {
+        this.db.exec(`ALTER TABLE photos ADD COLUMN ${columnDef}`);
+      }
+    }
+
     const folderCols = this.db.prepare("PRAGMA table_info(folders)").all();
     const folderSet = new Set(folderCols.map((c) => c.name));
     if (folderSet.size > 0) {
