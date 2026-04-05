@@ -180,7 +180,7 @@ function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
   let thumbnailUrl = '';
   let previewUrl = '';
 
-  if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash && thumbDir) {
+  if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash && typeof thumbDir === 'string') {
     const normalizedDir = thumbDir.replace(/\\/g, '/');
     thumbnailUrl = `file://${normalizedDir}/${dbPhoto.hash}.jpg`;
     previewUrl = `file://${dbPhoto.path.replace(/\\/g, '/')}`;
