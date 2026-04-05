@@ -7,6 +7,19 @@ export function normalizeFsPath(input: string): string {
   return (input || '').replace(/\\/g, '/').toLowerCase();
 }
 
+function toFileUrl(inputPath: string): string {
+  const normalized = (inputPath || '').replace(/\\/g, '/');
+  if (!normalized) return '';
+  if (normalized.startsWith('file://')) return normalized;
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return `file:///${encodeURI(normalized)}`;
+  }
+  if (normalized.startsWith('/')) {
+    return `file://${encodeURI(normalized)}`;
+  }
+  return `file:///${encodeURI(normalized)}`;
+}
+
 /**
  * Checks if a photo is in a given folder
  */
@@ -62,9 +75,8 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
 
   if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash && typeof thumbDir === 'string') {
     if (isElectron) {
-      // 在Electron环境中，使用正确的文件路径格式
-      thumbnailUrl = `file://${thumbDir.replace(/\\/g, '/')}/${dbPhoto.hash}_thumb.jpg`;
-      previewUrl = `file://${dbPhoto.path.replace(/\\/g, '/')}`;
+      thumbnailUrl = toFileUrl(`${thumbDir.replace(/\\/g, '/')}/${dbPhoto.hash}_thumb.jpg`);
+      previewUrl = toFileUrl(dbPhoto.path);
     } else {
       // 在Web环境中，使用占位图片
       thumbnailUrl = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`;
@@ -72,10 +84,8 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     }
   } else {
     if (isElectron && dbPhoto.path) {
-      // 在Electron环境中，使用原始文件路径
-      previewUrl = `file://${dbPhoto.path.replace(/\\/g, '/')}`;
-      // 对于没有缩略图的照片，使用原始文件作为缩略图
-      thumbnailUrl = `file://${dbPhoto.path.replace(/\\/g, '/')}`;
+      previewUrl = toFileUrl(dbPhoto.path);
+      thumbnailUrl = toFileUrl(dbPhoto.path);
     } else {
       // 在Web环境中，使用占位图片
       thumbnailUrl = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`;
