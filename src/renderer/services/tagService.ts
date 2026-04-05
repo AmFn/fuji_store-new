@@ -5,152 +5,219 @@
 import { Tag, Photo } from '../types';
 import '../types/electronAPI';
 
-// 本地存储键
-const LOCAL_TAGS_KEY = 'fuji-local-tags';
-const LOCAL_PHOTOS_KEY = 'fuji-local-photos';
-
-// 模拟标签数据
-const mockTags: Tag[] = [
-  {
-    id: 'Portrait',
-    name: 'Portrait',
-    color: '#3b82f6',
-    ownerId: 'local'
-  },
-  {
-    id: 'Street',
-    name: 'Street',
-    color: '#10b981',
-    ownerId: 'local'
-  },
-  {
-    id: 'Nature',
-    name: 'Nature',
-    color: '#f59e0b',
-    ownerId: 'local'
-  },
-  {
-    id: 'Architecture',
-    name: 'Architecture',
-    color: '#ef4444',
-    ownerId: 'local'
-  }
-];
-
-/**
- * 获取本地存储的标签
- */
-const getLocalTags = (): Tag[] => {
-  try {
-    const stored = localStorage.getItem(LOCAL_TAGS_KEY);
-    return stored ? JSON.parse(stored) : mockTags;
-  } catch (error) {
-    console.error('Failed to get local tags:', error);
-    return mockTags;
-  }
-};
-
-/**
- * 保存标签到本地存储
- */
-const saveLocalTags = (tags: Tag[]): void => {
-  try {
-    localStorage.setItem(LOCAL_TAGS_KEY, JSON.stringify(tags));
-  } catch (error) {
-    console.error('Failed to save local tags:', error);
-  }
-};
-
-/**
- * 获取本地存储的照片
- */
-const getLocalPhotos = (): Photo[] => {
-  try {
-    const stored = localStorage.getItem(LOCAL_PHOTOS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch (error) {
-    console.error('Failed to get local photos:', error);
-    return [];
-  }
-};
-
-/**
- * 保存照片到本地存储
- */
-const saveLocalPhotos = (photos: Photo[]): void => {
-  try {
-    localStorage.setItem(LOCAL_PHOTOS_KEY, JSON.stringify(photos));
-  } catch (error) {
-    console.error('Failed to save local photos:', error);
-  }
-};
-
-/**
- * 标签服务
- * 提供标签相关的操作方法
- */
 export const tagService = {
-  /**
-   * 加载所有标签
-   * @returns 标签列表
-   */
   async loadAllTags() {
     try {
+      console.log('[tagService] loadAllTags called');
       if (window.electronAPI?.getAllTags) {
-        const tagsData = await window.electronAPI.getAllTags();
-        return (tagsData || []).map((name: string) => ({
-          id: name,
-          name,
-          color: '#3b82f6',
-          ownerId: 'local'
+        console.log('[tagService] Calling getAllTags API');
+        const tags = await window.electronAPI.getAllTags();
+        console.log('[tagService] getAllTags returned:', tags);
+        const result = (tags || []).map((tag: any) => ({
+          id: String(tag.id),
+          name: tag.name,
+          color: tag.color || '#3b82f6',
+          ownerId: tag.owner_id || 'local'
         }));
-      } else {
-        // 本地模式：从本地存储获取标签
-        return getLocalTags();
+        console.log('[tagService] Mapped tags:', result);
+        return result;
       }
+      console.log('[tagService] No electronAPI.getAllTags available');
+      return [];
     } catch (error) {
       console.error('Failed to load tags:', error);
-      // 错误情况下返回模拟数据
-      return mockTags;
+      return [];
     }
   },
 
-  /**
-   * 从所有照片中移除标签
-   * @param tagName 标签名称
-   * @param photos 照片列表
-   * @returns 是否移除成功
-   */
-  async removeTagFromAllPhotos(tagName: string, photos: Photo[]) {
+  async createTag(tag: { name: string; color?: string; ownerId?: string }) {
     try {
-      if (window.electronAPI?.updatePhoto) {
-        const affectedPhotos = photos.filter(p => (p.tags || []).includes(tagName));
-        
-        for (const photo of affectedPhotos) {
-          const nextTags = (photo.tags || []).filter(t => t !== tagName);
-          await window.electronAPI.updatePhoto(photo.filePath, { tags: nextTags });
+      console.log('[tagService] createTag called with:', tag);
+      if (window.electronAPI?.createTag) {
+        const payload = {
+          name: tag.name,
+          color: tag.color || '#3b82f6',
+          owner_id: tag.ownerId || 'local'
+        };
+        console.log('[tagService] Calling createTag API with:', payload);
+        const result = await window.electronAPI.createTag(payload);
+        console.log('[tagService] createTag API result:', result);
+        if (result && result.id) {
+          return {
+            id: String(result.id),
+            name: result.name || tag.name,
+            color: result.color || tag.color || '#3b82f6',
+            ownerId: result.owner_id || tag.ownerId || 'local'
+          };
         }
-        
-        return true;
-      } else {
-        // 本地模式：从本地存储中移除标签
-        const localPhotos = getLocalPhotos();
-        const updatedPhotos = localPhotos.map(photo => ({
-          ...photo,
-          tags: (photo.tags || []).filter(t => t !== tagName)
-        }));
-        saveLocalPhotos(updatedPhotos);
-        
-        // 从标签列表中移除标签
-        const tags = getLocalTags();
-        const updatedTags = tags.filter(tag => tag.name !== tagName);
-        saveLocalTags(updatedTags);
-        
+        return null;
+      }
+      console.log('[tagService] No electronAPI.createTag available');
+      return null;
+    } catch (error) {
+      console.error('Failed to create tag:', error);
+      return null;
+    }
+  },
+
+  async updateTag(tag: { id: string; name: string; color?: string }) {
+    try {
+      if (window.electronAPI?.updateTag) {
+        await window.electronAPI.updateTag({
+          id: Number(tag.id),
+          name: tag.name,
+          color: tag.color || '#3b82f6'
+        });
         return true;
       }
+      return false;
+    } catch (error) {
+      console.error('Failed to update tag:', error);
+      return false;
+    }
+  },
+
+  async deleteTag(tagId: string) {
+    try {
+      if (window.electronAPI?.deleteTag) {
+        await window.electronAPI.deleteTag(Number(tagId));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to delete tag:', error);
+      return false;
+    }
+  },
+
+  async getTagsByPhoto(photoId: string) {
+    try {
+      console.log('[tagService] getTagsByPhoto called with:', photoId, typeof photoId);
+      if (window.electronAPI?.getTagsByPhoto) {
+        const numericPhotoId = Number(photoId);
+        console.log('[tagService] Calling API with numeric ID:', numericPhotoId);
+        const tags = await window.electronAPI.getTagsByPhoto(numericPhotoId);
+        console.log('[tagService] API returned tags:', tags);
+        return (tags || []).map((tag: any) => ({
+          id: String(tag.id),
+          name: tag.name,
+          color: tag.color || '#3b82f6',
+          ownerId: tag.owner_id || 'local'
+        }));
+      }
+      console.log('[tagService] No electronAPI available');
+      return [];
+    } catch (error) {
+      console.error('Failed to get tags by photo:', error);
+      return [];
+    }
+  },
+
+  async addTagToPhoto(photoId: string, tagId: string) {
+    try {
+      console.log('[tagService] addTagToPhoto called with:', { photoId, tagId });
+      if (window.electronAPI?.addTagToPhoto) {
+        const result = await window.electronAPI.addTagToPhoto(Number(photoId), Number(tagId));
+        console.log('[tagService] addTagToPhoto API result:', result);
+        return true;
+      }
+      console.log('[tagService] No electronAPI.addTagToPhoto available');
+      return false;
+    } catch (error) {
+      console.error('Failed to add tag to photo:', error);
+      return false;
+    }
+  },
+
+  async removeTagFromPhoto(photoId: string, tagId: string) {
+    try {
+      if (window.electronAPI?.removeTagFromPhoto) {
+        await window.electronAPI.removeTagFromPhoto(Number(photoId), Number(tagId));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to remove tag from photo:', error);
+      return false;
+    }
+  },
+
+  async setPhotoTags(photoId: string, tagIds: string[]) {
+    try {
+      if (window.electronAPI?.setPhotoTags) {
+        await window.electronAPI.setPhotoTags(Number(photoId), tagIds.map(Number));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to set photo tags:', error);
+      return false;
+    }
+  },
+
+  async removeTagFromAllPhotos(tagName: string, photos: Photo[]) {
+    try {
+      const tag = await this.getTagByName(tagName);
+      if (!tag) return false;
+
+      const affectedPhotos = photos.filter(p => (p.tags || []).includes(tagName));
+      
+      for (const photo of affectedPhotos) {
+        const nextTags = (photo.tags || []).filter(t => t !== tagName);
+        const tagIds = await Promise.all(
+          nextTags.map(async (t) => {
+            const foundTag = await this.getTagByName(t);
+            return foundTag ? foundTag.id : null;
+          })
+        );
+        await this.setPhotoTags(photo.id, tagIds.filter(Boolean) as string[]);
+      }
+      
+      return true;
     } catch (error) {
       console.error('Failed to remove tag from photos:', error);
       return false;
+    }
+  },
+
+  async getTagByName(name: string) {
+    try {
+      console.log('[tagService] getTagByName called with:', name);
+      if (window.electronAPI?.getTagByName) {
+        const tag = await window.electronAPI.getTagByName(name);
+        console.log('[tagService] getTagByName API returned:', tag);
+        if (tag) {
+          return {
+            id: String(tag.id),
+            name: tag.name,
+            color: tag.color || '#3b82f6',
+            ownerId: tag.owner_id || 'local'
+          };
+        }
+      } else {
+        console.log('[tagService] No electronAPI.getTagByName available');
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get tag by name:', error);
+      return null;
+    }
+  },
+
+  async getOrCreateTag(tagName: string, ownerId: string = 'local') {
+    try {
+      console.log('[tagService] getOrCreateTag called with:', { tagName, ownerId });
+      let tag = await this.getTagByName(tagName);
+      console.log('[tagService] getTagByName returned:', tag);
+      if (!tag) {
+        console.log('[tagService] Tag not found, creating new tag');
+        tag = await this.createTag({ name: tagName, ownerId });
+        console.log('[tagService] createTag returned:', tag);
+      }
+      return tag;
+    } catch (error) {
+      console.error('Failed to get or create tag:', error);
+      return null;
     }
   }
 };

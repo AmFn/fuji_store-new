@@ -26,11 +26,44 @@ declare global {
       'library:assign-folder-by-path': (params: { folderId: string | number; folderPath: string; includeSubfolders?: boolean }) => Promise<{ assigned: number }>;
       
       // 标签相关
-      getAllTags: () => Promise<string[]>;
+      getAllTags: () => Promise<any[]>;
+      createTag: (tag: { name: string; color?: string; owner_id?: string }) => Promise<any>;
+      updateTag: (tag: { id: number; name: string; color?: string }) => Promise<number>;
+      deleteTag: (tagId: number) => Promise<number>;
+      getTagById: (tagId: number) => Promise<any | null>;
+      getTagByName: (name: string) => Promise<any | null>;
+      getTagsByPhoto: (photoId: number) => Promise<any[]>;
+      addTagToPhoto: (photoId: number, tagId: number) => Promise<number>;
+      removeTagFromPhoto: (photoId: number, tagId: number) => Promise<number>;
+      setPhotoTags: (photoId: number, tagIds: number[]) => Promise<number>;
+      getPhotosByTag: (tagId: number, page?: number, pageSize?: number) => Promise<{ items: any[]; total: number; page: number; pageSize: number; totalPages: number }>;
+      
+      // 配方相关
+      getAllRecipes: () => Promise<any[]>;
+      createRecipe: (recipe: any) => Promise<any>;
+      updateRecipe: (recipe: any) => Promise<number>;
+      deleteRecipe: (recipeId: number) => Promise<number>;
+      getRecipeById: (recipeId: number) => Promise<any | null>;
+      getRecipesByPhoto: (photoId: number) => Promise<any[]>;
+      addRecipeToPhoto: (photoId: number, recipeId: number) => Promise<number>;
+      removeRecipeFromPhoto: (photoId: number, recipeId: number) => Promise<number>;
+      setPhotoRecipe: (photoId: number, recipeId: number | null) => Promise<boolean>;
+      getPhotosByRecipe: (recipeId: number, page?: number, pageSize?: number) => Promise<{ items: any[]; total: number; page: number; pageSize: number; totalPages: number }>;
       
       // 时间线相关
       getTimelineGroups: (page: number, pageSize: number) => Promise<{ items: any[]; total?: number; page?: number; totalPages?: number }>;
       getTimelinePhotosByDay: (dayKey: string, page: number, pageSize: number) => Promise<{ items: any[]; total?: number; page?: number; totalPages?: number }>;
+      
+      // 文件选择
+      pickFolder: () => Promise<string | null>;
+      pickFiles: () => Promise<string[] | null>;
+      
+      // 扫描相关
+      scanDirectoryForNewFiles: (folderPath: string) => Promise<{ newFiles: { path: string; fileName: string }[] }>;
+      scanFiles: (filePaths: string[]) => Promise<any>;
+      
+      // AI 识别
+      recognizeRecipe: (photo: any) => Promise<any>;
       
       // 其他
       getThumbnailDir: () => Promise<string>;

@@ -1,4 +1,5 @@
 import { Photo, Folder } from '../types';
+import { PLACEHOLDER_IMAGE } from '../constants/assets';
 
 /**
  * Normalizes a file system path by replacing backslashes with forward slashes and converting to lowercase
@@ -83,22 +84,19 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
         previewUrl = toFileUrl(dbPhoto.path);
       }
     } else if (isElectron && dbPhoto.path) {
-      // 如果没有thumbDir，但在Electron环境中，使用原始图片路径
       previewUrl = toFileUrl(dbPhoto.path);
       thumbnailUrl = toFileUrl(dbPhoto.path);
     } else {
-      // 在Web环境中，使用占位图片
-      thumbnailUrl = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`;
-      previewUrl = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`;
+      thumbnailUrl = PLACEHOLDER_IMAGE;
+      previewUrl = PLACEHOLDER_IMAGE;
     }
   } else {
     if (isElectron && dbPhoto.path) {
       previewUrl = toFileUrl(dbPhoto.path);
       thumbnailUrl = toFileUrl(dbPhoto.path);
     } else {
-      // 在Web环境中，使用占位图片
-      thumbnailUrl = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`;
-      previewUrl = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`;
+      thumbnailUrl = PLACEHOLDER_IMAGE;
+      previewUrl = PLACEHOLDER_IMAGE;
     }
   }
 

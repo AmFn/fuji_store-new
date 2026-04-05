@@ -83,7 +83,7 @@ export default function App() {
     uid: 'demo', 
     email: 'feng46042@gmail.com', 
     displayName: 'Fuji User',
-    photoURL: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Fuji'
+    photoURL: './assets/avatar.svg'
   } as any);
   
   // View state
@@ -389,7 +389,9 @@ export default function App() {
     setTags(prev => [...prev, tag]);
   };
 
-
+  const handleAddRecipe = (recipe: Recipe) => {
+    setRecipes(prev => [...prev, recipe]);
+  };
 
   const handleUpdateFolder = (id: string, updates: Partial<Folder>) => {
     setFolders(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));

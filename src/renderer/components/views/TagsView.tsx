@@ -5,6 +5,7 @@ import { Tag, Photo } from '../../types';
 import { COLORS } from '../../constants/filmModes';
 import { cn } from '../../lib/utils';
 import { ConfirmModal } from '../modals/ConfirmModal';
+import { tagService } from '../../services/tagService';
 
 interface TagsViewProps {
   tags: Tag[];
@@ -20,17 +21,34 @@ export function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: TagsV
   const [newTagColor, setNewTagColor] = useState('#3b82f6');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<{ show: boolean, tagId: string, tagName: string }>({ show: false, tagId: '', tagName: '' });
 
-  const handleCreateTag = () => {
+  const handleCreateTag = async () => {
     if (!newTagName.trim()) return;
-    const newTag: Tag = {
-      id: `t-${Date.now()}`,
-      name: newTagName.trim(),
+    console.log('[TagsView] Creating tag:', newTagName.trim());
+    
+    const existingTag = tags.find(t => t.name.toLowerCase() === newTagName.trim().toLowerCase());
+    if (existingTag) {
+      console.log('[TagsView] Tag already exists:', existingTag);
+      setNewTagName('');
+      setIsCreating(false);
+      return;
+    }
+    
+    const tag = await tagService.createTag({ 
+      name: newTagName.trim(), 
       color: newTagColor,
       ownerId: 'local'
-    };
-    setTags(prev => [...prev, newTag]);
-    setNewTagName('');
-    setIsCreating(false);
+    });
+    console.log('[TagsView] createTag result:', tag);
+    if (tag) {
+      setTags(prev => {
+        if (prev.some(t => t.name.toLowerCase() === tag.name.toLowerCase())) {
+          return prev;
+        }
+        return [...prev, tag];
+      });
+      setNewTagName('');
+      setIsCreating(false);
+    }
   };
 
   const handleDeleteTag = (id: string, e: React.MouseEvent) => {
@@ -40,8 +58,10 @@ export function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: TagsV
     setShowDeleteConfirm({ show: true, tagId: id, tagName: tagToDelete.name });
   };
 
-  const handleDeleteTagConfirm = () => {
+  const handleDeleteTagConfirm = async () => {
     const { tagId, tagName } = showDeleteConfirm;
+    console.log('[TagsView] Deleting tag:', tagId);
+    await tagService.deleteTag(tagId);
     setTags(prev => prev.filter(t => t.id !== tagId));
     setPhotos(prev => prev.map(p => ({
       ...p,

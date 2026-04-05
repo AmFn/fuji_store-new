@@ -8,6 +8,7 @@ import { folderService } from '../services/folderService';
 import { tagService } from '../services/tagService';
 import { Photo, Folder, Tag } from '../types';
 import '../types/electronAPI';
+import { PLACEHOLDER_IMAGE } from '../constants/assets';
 
 
 /**
@@ -99,12 +100,11 @@ export function usePhotoLibrary() {
         
         // 确保照片有有效的thumbnailUrl
         const processedPhotos = photosData.items.map(photo => {
-          // 如果thumbnailUrl为空或无效，使用默认的占位图片
           if (!photo.thumbnailUrl || photo.thumbnailUrl === 'file:///') {
             return {
               ...photo,
-              thumbnailUrl: `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`,
-              previewUrl: `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`
+              thumbnailUrl: PLACEHOLDER_IMAGE,
+              previewUrl: PLACEHOLDER_IMAGE
             };
           }
           return photo;
@@ -114,14 +114,13 @@ export function usePhotoLibrary() {
         setFolders(dedupeFolders(foldersData));
         setTags(tagsData);
       } else {
-        // 在非Electron环境中，使用mock数据
         setPhotos([
           {
             id: '1',
             fileName: 'test-photo-1.jpg',
             filePath: 'test-photos/test-photo-1.jpg',
-            thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
-            previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
+            thumbnailUrl: PLACEHOLDER_IMAGE,
+            previewUrl: PLACEHOLDER_IMAGE,
             hash: 'test1',
             cameraModel: 'FUJIFILM X-T4',
             dateTime: new Date(Date.now() - 86400000).toISOString(),
@@ -136,8 +135,8 @@ export function usePhotoLibrary() {
             id: '2',
             fileName: 'test-photo-2.jpg',
             filePath: 'test-photos/test-photo-2.jpg',
-            thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20portrait&image_size=square',
-            previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20portrait&image_size=square',
+            thumbnailUrl: PLACEHOLDER_IMAGE,
+            previewUrl: PLACEHOLDER_IMAGE,
             hash: 'test2',
             cameraModel: 'FUJIFILM X-T4',
             dateTime: new Date(Date.now() - 172800000).toISOString(),
@@ -152,8 +151,8 @@ export function usePhotoLibrary() {
             id: '3',
             fileName: 'test-photo-3.jpg',
             filePath: 'test-photos/test-photo-3.jpg',
-            thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20street&image_size=square',
-            previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20street&image_size=square',
+            thumbnailUrl: PLACEHOLDER_IMAGE,
+            previewUrl: PLACEHOLDER_IMAGE,
             hash: 'test3',
             cameraModel: 'FUJIFILM X-T4',
             dateTime: new Date(Date.now() - 259200000).toISOString(),
@@ -168,14 +167,13 @@ export function usePhotoLibrary() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
-      // 在错误情况下，使用mock数据
       setPhotos([
         {
           id: '1',
           fileName: 'test-photo-1.jpg',
           filePath: 'test-photos/test-photo-1.jpg',
-          thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
-          previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
+          thumbnailUrl: PLACEHOLDER_IMAGE,
+          previewUrl: PLACEHOLDER_IMAGE,
           hash: 'test1',
           cameraModel: 'FUJIFILM X-T4',
           dateTime: new Date(Date.now() - 86400000).toISOString(),

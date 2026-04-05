@@ -168,6 +168,59 @@ export class PhotoDatabase {
         updated_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        color TEXT NOT NULL DEFAULT '#3b82f6',
+        owner_id TEXT NOT NULL DEFAULT 'local',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS photo_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        photo_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(photo_id, tag_id),
+        FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS recipes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        film_mode TEXT,
+        white_balance TEXT,
+        dynamic_range TEXT,
+        sharpness TEXT,
+        saturation TEXT,
+        contrast TEXT,
+        clarity TEXT,
+        shadow_tone TEXT,
+        highlight_tone TEXT,
+        noise_reduction TEXT,
+        grain_effect TEXT,
+        color_chrome_effect TEXT,
+        color_chrome_effect_blue TEXT,
+        color TEXT,
+        is_favorite INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0, 1)),
+        owner_id TEXT NOT NULL DEFAULT 'local',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS photo_recipes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        photo_id INTEGER NOT NULL,
+        recipe_id INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(photo_id, recipe_id),
+        FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+        FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+      );
+
     `);
 
     this.#migrateLegacySchema();
@@ -459,6 +512,121 @@ export class PhotoDatabase {
       FROM folders
       WHERE parent_id = ?
     `);
+
+    this.stmts.insertTag = this.db.prepare(`
+      INSERT INTO tags (name, color, owner_id, created_at, updated_at)
+      VALUES (@name, @color, @owner_id, @created_at, @updated_at)
+      ON CONFLICT(name) DO UPDATE SET color = @color, updated_at = @updated_at
+    `);
+
+    this.stmts.updateTag = this.db.prepare(`
+      UPDATE tags SET name = @name, color = @color, updated_at = @updated_at WHERE id = @id
+    `);
+
+    this.stmts.deleteTag = this.db.prepare(`DELETE FROM tags WHERE id = ?`);
+
+    this.stmts.getTagById = this.db.prepare(`SELECT * FROM tags WHERE id = ?`);
+
+    this.stmts.getTagByName = this.db.prepare(`SELECT * FROM tags WHERE name = ?`);
+
+    this.stmts.getAllTags = this.db.prepare(`SELECT * FROM tags ORDER BY name ASC`);
+
+    this.stmts.getTagsByOwner = this.db.prepare(`SELECT * FROM tags WHERE owner_id = ? ORDER BY name ASC`);
+
+    this.stmts.insertPhotoTag = this.db.prepare(`
+      INSERT OR IGNORE INTO photo_tags (photo_id, tag_id, created_at)
+      VALUES (@photo_id, @tag_id, @created_at)
+    `);
+
+    this.stmts.deletePhotoTag = this.db.prepare(`
+      DELETE FROM photo_tags WHERE photo_id = @photo_id AND tag_id = @tag_id
+    `);
+
+    this.stmts.deletePhotoTagsByPhoto = this.db.prepare(`
+      DELETE FROM photo_tags WHERE photo_id = ?
+    `);
+
+    this.stmts.deletePhotoTagsByTag = this.db.prepare(`
+      DELETE FROM photo_tags WHERE tag_id = ?
+    `);
+
+    this.stmts.getTagsByPhotoId = this.db.prepare(`
+      SELECT t.* FROM tags t
+      INNER JOIN photo_tags pt ON t.id = pt.tag_id
+      WHERE pt.photo_id = ?
+      ORDER BY t.name ASC
+    `);
+
+    this.stmts.getPhotosByTagId = this.db.prepare(`
+      SELECT p.* FROM photos p
+      INNER JOIN photo_tags pt ON p.id = pt.photo_id
+      WHERE pt.tag_id = ? AND p.deleted = 0
+      ORDER BY p.created_at DESC
+    `);
+
+    this.stmts.insertRecipe = this.db.prepare(`
+      INSERT INTO recipes (
+        name, description, film_mode, white_balance, dynamic_range, sharpness, saturation,
+        contrast, clarity, shadow_tone, highlight_tone, noise_reduction, grain_effect,
+        color_chrome_effect, color_chrome_effect_blue, color, is_favorite, owner_id, created_at, updated_at
+      ) VALUES (
+        @name, @description, @film_mode, @white_balance, @dynamic_range, @sharpness, @saturation,
+        @contrast, @clarity, @shadow_tone, @highlight_tone, @noise_reduction, @grain_effect,
+        @color_chrome_effect, @color_chrome_effect_blue, @color, @is_favorite, @owner_id, @created_at, @updated_at
+      )
+    `);
+
+    this.stmts.updateRecipe = this.db.prepare(`
+      UPDATE recipes SET
+        name = @name, description = @description, film_mode = @film_mode, white_balance = @white_balance,
+        dynamic_range = @dynamic_range, sharpness = @sharpness, saturation = @saturation,
+        contrast = @contrast, clarity = @clarity, shadow_tone = @shadow_tone, highlight_tone = @highlight_tone,
+        noise_reduction = @noise_reduction, grain_effect = @grain_effect,
+        color_chrome_effect = @color_chrome_effect, color_chrome_effect_blue = @color_chrome_effect_blue,
+        color = @color, is_favorite = @is_favorite, updated_at = @updated_at
+      WHERE id = @id
+    `);
+
+    this.stmts.deleteRecipe = this.db.prepare(`DELETE FROM recipes WHERE id = ?`);
+
+    this.stmts.getRecipeById = this.db.prepare(`SELECT * FROM recipes WHERE id = ?`);
+
+    this.stmts.getAllRecipes = this.db.prepare(`SELECT * FROM recipes ORDER BY name ASC`);
+
+    this.stmts.getRecipesByOwner = this.db.prepare(`SELECT * FROM recipes WHERE owner_id = ? ORDER BY name ASC`);
+
+    this.stmts.insertPhotoRecipe = this.db.prepare(`
+      INSERT OR IGNORE INTO photo_recipes (photo_id, recipe_id, created_at)
+      VALUES (@photo_id, @recipe_id, @created_at)
+    `);
+
+    this.stmts.deletePhotoRecipe = this.db.prepare(`
+      DELETE FROM photo_recipes WHERE photo_id = @photo_id AND recipe_id = @recipe_id
+    `);
+
+    this.stmts.deletePhotoRecipesByPhoto = this.db.prepare(`
+      DELETE FROM photo_recipes WHERE photo_id = ?
+    `);
+
+    this.stmts.deletePhotoRecipesByRecipe = this.db.prepare(`
+      DELETE FROM photo_recipes WHERE recipe_id = ?
+    `);
+
+    this.stmts.getRecipesByPhotoId = this.db.prepare(`
+      SELECT r.* FROM recipes r
+      INNER JOIN photo_recipes pr ON r.id = pr.recipe_id
+      WHERE pr.photo_id = ?
+      ORDER BY r.name ASC
+    `);
+
+    this.stmts.getPhotosByRecipeId = this.db.prepare(`
+      SELECT p.* FROM photos p
+      INNER JOIN photo_recipes pr ON p.id = pr.photo_id
+      WHERE pr.recipe_id = ? AND p.deleted = 0
+      ORDER BY p.created_at DESC
+    `);
+
+    this.#migrateTagsFromJson();
   }
 
   #detectCompatibility() {
@@ -481,6 +649,14 @@ export class PhotoDatabase {
       CREATE INDEX IF NOT EXISTS idx_photos_updated_at ON photos(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_photos_deleted ON photos(deleted);
       CREATE INDEX IF NOT EXISTS idx_photos_folder_id ON photos(folder_id);
+      CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
+      CREATE INDEX IF NOT EXISTS idx_tags_owner_id ON tags(owner_id);
+      CREATE INDEX IF NOT EXISTS idx_photo_tags_photo_id ON photo_tags(photo_id);
+      CREATE INDEX IF NOT EXISTS idx_photo_tags_tag_id ON photo_tags(tag_id);
+      CREATE INDEX IF NOT EXISTS idx_recipes_name ON recipes(name);
+      CREATE INDEX IF NOT EXISTS idx_recipes_owner_id ON recipes(owner_id);
+      CREATE INDEX IF NOT EXISTS idx_photo_recipes_photo_id ON photo_recipes(photo_id);
+      CREATE INDEX IF NOT EXISTS idx_photo_recipes_recipe_id ON photo_recipes(recipe_id);
     `);
 
     const folderCols = this.db.prepare("PRAGMA table_info(folders)").all();
@@ -686,6 +862,68 @@ export class PhotoDatabase {
         this.db.exec(`ALTER TABLE folders ADD COLUMN updated_at INTEGER NOT NULL DEFAULT ${Date.now()}`);
       }
     }
+  }
+
+  #migrateTagsFromJson() {
+    const tagsTableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tags'").get();
+    if (!tagsTableExists) return;
+
+    const photoTagsTableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='photo_tags'").get();
+    if (!photoTagsTableExists) return;
+
+    const migrationKey = 'tags_json_migrated';
+    const migrationDone = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_flags'").get();
+    
+    if (!migrationDone) {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS schema_flags (key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 1)`);
+    }
+
+    const alreadyMigrated = this.db.prepare("SELECT value FROM schema_flags WHERE key = ?").get(migrationKey);
+    if (alreadyMigrated) return;
+
+    console.log('[DB] Migrating tags from tags_json to tags table...');
+    
+    const photos = this.db.prepare("SELECT id, tags_json FROM photos WHERE tags_json IS NOT NULL AND tags_json != '[]'").all();
+    const now = Date.now();
+    
+    const migrate = this.db.transaction(() => {
+      for (const photo of photos) {
+        try {
+          const tags = JSON.parse(photo.tags_json || '[]');
+          if (!Array.isArray(tags)) continue;
+          
+          for (const tagName of tags) {
+            if (typeof tagName !== 'string' || !tagName.trim()) continue;
+            
+            const trimmedName = tagName.trim();
+            
+            this.stmts.insertTag.run({
+              name: trimmedName,
+              color: '#3b82f6',
+              owner_id: 'local',
+              created_at: now,
+              updated_at: now,
+            });
+            
+            const tag = this.stmts.getTagByName.get(trimmedName);
+            if (tag && photo.id) {
+              this.stmts.insertPhotoTag.run({
+                photo_id: photo.id,
+                tag_id: tag.id,
+                created_at: now,
+              });
+            }
+          }
+        } catch (e) {
+          // ignore parse errors
+        }
+      }
+      
+      this.db.prepare("INSERT OR REPLACE INTO schema_flags (key, value) VALUES (?, 1)").run(migrationKey);
+    });
+    
+    migrate();
+    console.log(`[DB] Migrated tags from ${photos.length} photos`);
   }
 
   async upsertPhoto(photo) {
@@ -1050,21 +1288,228 @@ export class PhotoDatabase {
   }
 
   async getAllTags() {
-    if (!this.compat.hasTagsJson) return [];
-    const rows = this.db.prepare("SELECT tags_json FROM photos WHERE tags_json IS NOT NULL AND tags_json != '[]'").all();
-    const set = new Set();
-    for (const row of rows) {
-      try {
-        const tags = JSON.parse(row.tags_json || '[]');
-        if (Array.isArray(tags)) {
-          for (const t of tags) {
-            if (typeof t === 'string' && t.trim()) set.add(t.trim());
-          }
-        }
-      } catch {
-      }
+    console.log('[DB] getAllTags called');
+    const tags = this.stmts.getAllTags.all();
+    console.log('[DB] getAllTags returned:', tags);
+    return tags;
+  }
+
+  async createTag(tag) {
+    console.log('[DB] createTag called with:', tag);
+    const now = Date.now();
+    
+    const existing = this.stmts.getTagByName.get(tag.name);
+    if (existing) {
+      console.log('[DB] Tag already exists, returning existing:', existing);
+      return existing.id;
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
+    
+    const result = this.stmts.insertTag.run({
+      name: tag.name,
+      color: tag.color || '#3b82f6',
+      owner_id: tag.owner_id || 'local',
+      created_at: now,
+      updated_at: now,
+    });
+    console.log('[DB] createTag result:', result);
+    return result.lastInsertRowid;
+  }
+
+  async updateTag(tag) {
+    const result = this.stmts.updateTag.run({
+      id: Number(tag.id),
+      name: tag.name,
+      color: tag.color || '#3b82f6',
+      updated_at: Date.now(),
+    });
+    return result.changes;
+  }
+
+  async deleteTag(tagId) {
+    const result = this.stmts.deleteTag.run(Number(tagId));
+    return result.changes;
+  }
+
+  async getTagById(tagId) {
+    return this.stmts.getTagById.get(Number(tagId)) ?? null;
+  }
+
+  async getTagByName(name) {
+    return this.stmts.getTagByName.get(name) ?? null;
+  }
+
+  async getTagsByOwner(ownerId) {
+    return this.stmts.getTagsByOwner.all(ownerId);
+  }
+
+  async addTagToPhoto(photoId, tagId) {
+    console.log('[DB] addTagToPhoto called with:', { photoId, tagId });
+    const result = this.stmts.insertPhotoTag.run({
+      photo_id: Number(photoId),
+      tag_id: Number(tagId),
+      created_at: Date.now(),
+    });
+    console.log('[DB] addTagToPhoto result:', result);
+    return result.changes;
+  }
+
+  async removeTagFromPhoto(photoId, tagId) {
+    const result = this.stmts.deletePhotoTag.run({
+      photo_id: Number(photoId),
+      tag_id: Number(tagId),
+    });
+    return result.changes;
+  }
+
+  async setPhotoTags(photoId, tagIds) {
+    const write = this.db.transaction(() => {
+      this.stmts.deletePhotoTagsByPhoto.run(Number(photoId));
+      for (const tagId of tagIds) {
+        this.stmts.insertPhotoTag.run({
+          photo_id: Number(photoId),
+          tag_id: Number(tagId),
+          created_at: Date.now(),
+        });
+      }
+      return tagIds.length;
+    });
+    return write();
+  }
+
+  async getTagsByPhotoId(photoId) {
+    console.log('[DB] getTagsByPhotoId called with:', photoId, 'type:', typeof photoId);
+    const tags = this.stmts.getTagsByPhotoId.all(Number(photoId));
+    console.log('[DB] getTagsByPhotoId returned:', tags);
+    return tags;
+  }
+
+  async getPhotosByTagId(tagId, page = 1, pageSize = 120) {
+    const offset = (Math.max(1, page) - 1) * Math.max(1, pageSize);
+    const photos = this.stmts.getPhotosByTagId.all(Number(tagId));
+    return {
+      page,
+      pageSize,
+      total: photos.length,
+      totalPages: Math.ceil(photos.length / pageSize),
+      items: photos.slice(offset, offset + pageSize),
+    };
+  }
+
+  async getAllRecipes() {
+    return this.stmts.getAllRecipes.all();
+  }
+
+  async createRecipe(recipe) {
+    const now = Date.now();
+    const result = this.stmts.insertRecipe.run({
+      name: recipe.name,
+      description: recipe.description || null,
+      film_mode: recipe.film_mode || recipe.filmMode || null,
+      white_balance: recipe.white_balance || recipe.whiteBalance || null,
+      dynamic_range: recipe.dynamic_range || recipe.dynamicRange || null,
+      sharpness: recipe.sharpness || null,
+      saturation: recipe.saturation || null,
+      contrast: recipe.contrast || null,
+      clarity: recipe.clarity || null,
+      shadow_tone: recipe.shadow_tone || recipe.shadowTone || null,
+      highlight_tone: recipe.highlight_tone || recipe.highlightTone || null,
+      noise_reduction: recipe.noise_reduction || recipe.noiseReduction || null,
+      grain_effect: recipe.grain_effect || recipe.grainEffect || null,
+      color_chrome_effect: recipe.color_chrome_effect || recipe.colorChromeEffect || null,
+      color_chrome_effect_blue: recipe.color_chrome_effect_blue || recipe.colorChromeEffectBlue || null,
+      color: recipe.color || null,
+      is_favorite: recipe.is_favorite || recipe.isFavorite ? 1 : 0,
+      owner_id: recipe.owner_id || recipe.ownerId || 'local',
+      created_at: now,
+      updated_at: now,
+    });
+    return result.lastInsertRowid;
+  }
+
+  async updateRecipe(recipe) {
+    const result = this.stmts.updateRecipe.run({
+      id: Number(recipe.id),
+      name: recipe.name,
+      description: recipe.description || null,
+      film_mode: recipe.film_mode || recipe.filmMode || null,
+      white_balance: recipe.white_balance || recipe.whiteBalance || null,
+      dynamic_range: recipe.dynamic_range || recipe.dynamicRange || null,
+      sharpness: recipe.sharpness || null,
+      saturation: recipe.saturation || null,
+      contrast: recipe.contrast || null,
+      clarity: recipe.clarity || null,
+      shadow_tone: recipe.shadow_tone || recipe.shadowTone || null,
+      highlight_tone: recipe.highlight_tone || recipe.highlightTone || null,
+      noise_reduction: recipe.noise_reduction || recipe.noiseReduction || null,
+      grain_effect: recipe.grain_effect || recipe.grainEffect || null,
+      color_chrome_effect: recipe.color_chrome_effect || recipe.colorChromeEffect || null,
+      color_chrome_effect_blue: recipe.color_chrome_effect_blue || recipe.colorChromeEffectBlue || null,
+      color: recipe.color || null,
+      is_favorite: recipe.is_favorite || recipe.isFavorite ? 1 : 0,
+      updated_at: Date.now(),
+    });
+    return result.changes;
+  }
+
+  async deleteRecipe(recipeId) {
+    const result = this.stmts.deleteRecipe.run(Number(recipeId));
+    return result.changes;
+  }
+
+  async getRecipeById(recipeId) {
+    return this.stmts.getRecipeById.get(Number(recipeId)) ?? null;
+  }
+
+  async getRecipesByOwner(ownerId) {
+    return this.stmts.getRecipesByOwner.all(ownerId);
+  }
+
+  async addRecipeToPhoto(photoId, recipeId) {
+    const result = this.stmts.insertPhotoRecipe.run({
+      photo_id: Number(photoId),
+      recipe_id: Number(recipeId),
+      created_at: Date.now(),
+    });
+    return result.changes;
+  }
+
+  async removeRecipeFromPhoto(photoId, recipeId) {
+    const result = this.stmts.deletePhotoRecipe.run({
+      photo_id: Number(photoId),
+      recipe_id: Number(recipeId),
+    });
+    return result.changes;
+  }
+
+  async setPhotoRecipe(photoId, recipeId) {
+    const write = this.db.transaction(() => {
+      this.stmts.deletePhotoRecipesByPhoto.run(Number(photoId));
+      if (recipeId) {
+        this.stmts.insertPhotoRecipe.run({
+          photo_id: Number(photoId),
+          recipe_id: Number(recipeId),
+          created_at: Date.now(),
+        });
+      }
+      return true;
+    });
+    return write();
+  }
+
+  async getRecipesByPhotoId(photoId) {
+    return this.stmts.getRecipesByPhotoId.all(Number(photoId));
+  }
+
+  async getPhotosByRecipeId(recipeId, page = 1, pageSize = 120) {
+    const offset = (Math.max(1, page) - 1) * Math.max(1, pageSize);
+    const photos = this.stmts.getPhotosByRecipeId.all(Number(recipeId));
+    return {
+      page,
+      pageSize,
+      total: photos.length,
+      totalPages: Math.ceil(photos.length / pageSize),
+      items: photos.slice(offset, offset + pageSize),
+    };
   }
 
   close() {

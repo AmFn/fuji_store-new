@@ -202,7 +202,6 @@ app.whenReady().then(async () => {
     }
     return { success: true, deleted };
   });
-  ipcMain.handle('library:get-all-tags', async () => libraryManager.db.getAllTags());
   ipcMain.handle('library:get-all-cameras', async () => []);
   ipcMain.handle('library:get-all-film-modes', async () => []);
   ipcMain.handle('library:scan-for-new-files', async (_e, { folderPath }) => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Heart, Share2, Trash2, Star, Sparkles, HardDrive, ExternalLink } from 'lucide-react';
 import { Photo, Recipe, Tag, Folder } from '../../types';
@@ -7,6 +7,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { CustomSelect } from '../common/CustomSelect';
 import { CompactExif } from '../common/CompactExif';
 import { FilmTag } from '../common/FilmTag';
+import { tagService } from '../../services/tagService';
 
 interface PhotoDetailModalProps {
   photo: Photo;
@@ -38,10 +39,26 @@ export function PhotoDetailModal({
   const [isFavorite, setIsFavorite] = useState(photo.isFavorite);
   const [isHidden, setIsHidden] = useState(photo.isHidden);
   const [rating, setRating] = useState(photo.rating);
-  const [photoTags, setPhotoTags] = useState<string[]>(photo.tags || []);
+  const [photoTags, setPhotoTags] = useState<Tag[]>([]);
   const [newTag, setNewTag] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedRecipeId, setSelectedRecipeId] = useState(photo.recipeId || '');
+
+  useEffect(() => {
+    const loadTags = async () => {
+      if (photo.id) {
+        console.log('[PhotoDetailModal] Loading tags for photo:', photo.id, typeof photo.id);
+        try {
+          const tags = await tagService.getTagsByPhoto(photo.id);
+          console.log('[PhotoDetailModal] Loaded tags:', tags);
+          setPhotoTags(tags);
+        } catch (err) {
+          console.error('[PhotoDetailModal] Failed to load tags:', err);
+        }
+      }
+    };
+    loadTags();
+  }, [photo.id]);
 
   const folder = folders.find(f => f.id === photo.folderId);
   const currentRecipe = recipes.find(r => r.id === selectedRecipeId);
@@ -65,27 +82,39 @@ export function PhotoDetailModal({
   };
 
   const handleAddTag = async (tagName: string) => {
+    console.log('[PhotoDetailModal] handleAddTag called with:', tagName);
     const cleanTag = tagName.trim();
-    if (!cleanTag || photoTags.includes(cleanTag)) return;
-    const updatedTags = [...photoTags, cleanTag];
-    setPhotoTags(updatedTags);
-    setNewTag('');
-    onUpdatePhoto(photo.id, { tags: updatedTags });
+    if (!cleanTag) {
+      console.log('[PhotoDetailModal] Empty tag, returning');
+      return;
+    }
     
-    if (!allTags.some(t => t.name === cleanTag)) {
-      onAddTag({
-        id: `t-${Date.now()}`,
-        name: cleanTag,
-        color: '#3b82f6',
-        ownerId: photo.ownerId
-      });
+    const existingTag = photoTags.find(t => t.name.toLowerCase() === cleanTag.toLowerCase());
+    if (existingTag) {
+      console.log('[PhotoDetailModal] Tag already exists:', existingTag);
+      return;
+    }
+
+    setNewTag('');
+    
+    console.log('[PhotoDetailModal] Calling getOrCreateTag for:', cleanTag);
+    const tag = await tagService.getOrCreateTag(cleanTag, photo.ownerId);
+    console.log('[PhotoDetailModal] getOrCreateTag returned:', tag);
+    
+    if (tag) {
+      console.log('[PhotoDetailModal] Adding tag to photo:', { photoId: photo.id, tagId: tag.id });
+      await tagService.addTagToPhoto(photo.id, tag.id);
+      setPhotoTags([...photoTags, tag]);
+      
+      if (!allTags.some(t => t.name === cleanTag)) {
+        onAddTag(tag);
+      }
     }
   };
 
-  const handleRemoveTag = async (tagToRemove: string) => {
-    const updatedTags = photoTags.filter(t => t !== tagToRemove);
-    setPhotoTags(updatedTags);
-    onUpdatePhoto(photo.id, { tags: updatedTags });
+  const handleRemoveTag = async (tagToRemove: Tag) => {
+    await tagService.removeTagFromPhoto(photo.id, tagToRemove.id);
+    setPhotoTags(photoTags.filter(t => t.id !== tagToRemove.id));
   };
 
   const handleRecipeChange = (recipeId: string) => {
@@ -259,10 +288,11 @@ export function PhotoDetailModal({
                 <div className="flex flex-wrap gap-1.5">
                   {photoTags.map(tag => (
                     <span 
-                      key={tag} 
+                      key={tag.id} 
                       className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 text-blue-500 rounded-lg text-[9px] font-black uppercase tracking-widest border border-blue-500/20"
+                      style={{ borderColor: tag.color ? `${tag.color}33` : undefined, color: tag.color || undefined }}
                     >
-                      {tag}
+                      {tag.name}
                       <button onClick={() => handleRemoveTag(tag)} className="hover:text-red-500 transition-colors">
                         <X className="w-2.5 h-2.5" />
                       </button>
@@ -274,7 +304,13 @@ export function PhotoDetailModal({
                     className="w-12 bg-slate-500/5 border border-[var(--border-color)] rounded-lg px-2 py-1 text-[9px] font-bold focus:outline-none focus:w-24 transition-all"
                     value={newTag}
                     onChange={(e) => setNewTag(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddTag(newTag)}
+                    onKeyDown={(e) => {
+                      console.log('[PhotoDetailModal] Key pressed:', e.key, 'value:', newTag);
+                      if (e.key === 'Enter') {
+                        console.log('[PhotoDetailModal] Enter pressed, calling handleAddTag');
+                        handleAddTag(newTag);
+                      }
+                    }}
                   />
                 </div>
               </div>

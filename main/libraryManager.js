@@ -188,6 +188,112 @@ export class LibraryManager extends EventEmitter {
   async clearFolderPhotos(folderId) {
     return this.db.clearFolderPhotos(folderId);
   }
+
+  async getAllTags() {
+    console.log('[LibraryManager] getAllTags called');
+    const tags = this.db.getAllTags();
+    console.log('[LibraryManager] getAllTags returned:', tags);
+    return tags;
+  }
+
+  async createTag(tag) {
+    console.log('[LibraryManager] createTag called with:', tag);
+    const id = await this.db.createTag(tag);
+    console.log('[LibraryManager] createTag returned id:', id);
+    return { 
+      id, 
+      name: tag.name,
+      color: tag.color || '#3b82f6',
+      owner_id: tag.owner_id || 'local'
+    };
+  }
+
+  async updateTag(tag) {
+    await this.db.updateTag(tag);
+    return tag;
+  }
+
+  async deleteTag(tagId) {
+    await this.db.deleteTag(tagId);
+    return true;
+  }
+
+  async getTagById(tagId) {
+    return this.db.getTagById(tagId);
+  }
+
+  async getTagByName(name) {
+    return this.db.getTagByName(name);
+  }
+
+  async getTagsByPhotoId(photoId) {
+    console.log('[LibraryManager] getTagsByPhotoId called with:', photoId);
+    const tags = this.db.getTagsByPhotoId(photoId);
+    console.log('[LibraryManager] getTagsByPhotoId returned:', tags);
+    return tags;
+  }
+
+  async addTagToPhoto(photoId, tagId) {
+    console.log('[LibraryManager] addTagToPhoto called with:', { photoId, tagId });
+    const result = await this.db.addTagToPhoto(photoId, tagId);
+    console.log('[LibraryManager] addTagToPhoto result:', result);
+    return result;
+  }
+
+  async removeTagFromPhoto(photoId, tagId) {
+    return this.db.removeTagFromPhoto(photoId, tagId);
+  }
+
+  async setPhotoTags(photoId, tagIds) {
+    return this.db.setPhotoTags(photoId, tagIds);
+  }
+
+  async getPhotosByTagId(tagId, page, pageSize) {
+    return this.db.getPhotosByTagId(tagId, page, pageSize);
+  }
+
+  async getAllRecipes() {
+    return this.db.getAllRecipes();
+  }
+
+  async createRecipe(recipe) {
+    const id = await this.db.createRecipe(recipe);
+    return { ...recipe, id };
+  }
+
+  async updateRecipe(recipe) {
+    await this.db.updateRecipe(recipe);
+    return recipe;
+  }
+
+  async deleteRecipe(recipeId) {
+    await this.db.deleteRecipe(recipeId);
+    return true;
+  }
+
+  async getRecipeById(recipeId) {
+    return this.db.getRecipeById(recipeId);
+  }
+
+  async getRecipesByPhotoId(photoId) {
+    return this.db.getRecipesByPhotoId(photoId);
+  }
+
+  async addRecipeToPhoto(photoId, recipeId) {
+    return this.db.addRecipeToPhoto(photoId, recipeId);
+  }
+
+  async removeRecipeFromPhoto(photoId, recipeId) {
+    return this.db.removeRecipeFromPhoto(photoId, recipeId);
+  }
+
+  async setPhotoRecipe(photoId, recipeId) {
+    return this.db.setPhotoRecipe(photoId, recipeId);
+  }
+
+  async getPhotosByRecipeId(recipeId, page, pageSize) {
+    return this.db.getPhotosByRecipeId(recipeId, page, pageSize);
+  }
 }
 
 export function registerLibraryIpc(ipcMain, manager) {
@@ -207,6 +313,27 @@ export function registerLibraryIpc(ipcMain, manager) {
     manager.assignFolderByPath(folderId, folderPath, includeSubfolders)
   );
   ipcMain.handle('clearAllPhotos', async () => manager.clearAllPhotos());
-  
 
+  ipcMain.handle('library:get-all-tags', async () => manager.getAllTags());
+  ipcMain.handle('library:create-tag', async (_evt, tag) => manager.createTag(tag));
+  ipcMain.handle('library:update-tag', async (_evt, tag) => manager.updateTag(tag));
+  ipcMain.handle('library:delete-tag', async (_evt, tagId) => manager.deleteTag(tagId));
+  ipcMain.handle('library:get-tag-by-id', async (_evt, tagId) => manager.getTagById(tagId));
+  ipcMain.handle('library:get-tag-by-name', async (_evt, name) => manager.getTagByName(name));
+  ipcMain.handle('library:get-tags-by-photo', async (_evt, photoId) => manager.getTagsByPhotoId(photoId));
+  ipcMain.handle('library:add-tag-to-photo', async (_evt, photoId, tagId) => manager.addTagToPhoto(photoId, tagId));
+  ipcMain.handle('library:remove-tag-from-photo', async (_evt, photoId, tagId) => manager.removeTagFromPhoto(photoId, tagId));
+  ipcMain.handle('library:set-photo-tags', async (_evt, photoId, tagIds) => manager.setPhotoTags(photoId, tagIds));
+  ipcMain.handle('library:get-photos-by-tag', async (_evt, tagId, page, pageSize) => manager.getPhotosByTagId(tagId, page, pageSize));
+
+  ipcMain.handle('library:get-all-recipes', async () => manager.getAllRecipes());
+  ipcMain.handle('library:create-recipe', async (_evt, recipe) => manager.createRecipe(recipe));
+  ipcMain.handle('library:update-recipe', async (_evt, recipe) => manager.updateRecipe(recipe));
+  ipcMain.handle('library:delete-recipe', async (_evt, recipeId) => manager.deleteRecipe(recipeId));
+  ipcMain.handle('library:get-recipe-by-id', async (_evt, recipeId) => manager.getRecipeById(recipeId));
+  ipcMain.handle('library:get-recipes-by-photo', async (_evt, photoId) => manager.getRecipesByPhotoId(photoId));
+  ipcMain.handle('library:add-recipe-to-photo', async (_evt, photoId, recipeId) => manager.addRecipeToPhoto(photoId, recipeId));
+  ipcMain.handle('library:remove-recipe-from-photo', async (_evt, photoId, recipeId) => manager.removeRecipeFromPhoto(photoId, recipeId));
+  ipcMain.handle('library:set-photo-recipe', async (_evt, photoId, recipeId) => manager.setPhotoRecipe(photoId, recipeId));
+  ipcMain.handle('library:get-photos-by-recipe', async (_evt, recipeId, page, pageSize) => manager.getPhotosByRecipeId(recipeId, page, pageSize));
 }

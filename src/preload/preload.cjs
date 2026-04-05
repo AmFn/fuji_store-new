@@ -236,4 +236,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
       console.error('clearFolderPhotos error:', err);
       return { success: false };
     }),
+
+  // 标签相关 API
+  getAllTags: () => ipcRenderer.invoke('library:get-all-tags'),
+  createTag: (tag) => ipcRenderer.invoke('library:create-tag', tag),
+  updateTag: (tag) => ipcRenderer.invoke('library:update-tag', tag),
+  deleteTag: (tagId) => ipcRenderer.invoke('library:delete-tag', tagId),
+  getTagById: (tagId) => ipcRenderer.invoke('library:get-tag-by-id', tagId),
+  getTagByName: (name) => ipcRenderer.invoke('library:get-tag-by-name', name),
+  getTagsByPhoto: (photoId) => ipcRenderer.invoke('library:get-tags-by-photo', photoId),
+  addTagToPhoto: (photoId, tagId) => ipcRenderer.invoke('library:add-tag-to-photo', photoId, tagId),
+  removeTagFromPhoto: (photoId, tagId) => ipcRenderer.invoke('library:remove-tag-from-photo', photoId, tagId),
+  setPhotoTags: (photoId, tagIds) => ipcRenderer.invoke('library:set-photo-tags', photoId, tagIds),
+  getPhotosByTag: (tagId, page, pageSize) => ipcRenderer.invoke('library:get-photos-by-tag', tagId, page, pageSize),
+
+  // 配方相关 API
+  getAllRecipes: () => ipcRenderer.invoke('library:get-all-recipes'),
+  createRecipe: (recipe) => ipcRenderer.invoke('library:create-recipe', recipe),
+  updateRecipe: (recipe) => ipcRenderer.invoke('library:update-recipe', recipe),
+  deleteRecipe: (recipeId) => ipcRenderer.invoke('library:delete-recipe', recipeId),
+  getRecipeById: (recipeId) => ipcRenderer.invoke('library:get-recipe-by-id', recipeId),
+  getRecipesByPhoto: (photoId) => ipcRenderer.invoke('library:get-recipes-by-photo', photoId),
+  addRecipeToPhoto: (photoId, recipeId) => ipcRenderer.invoke('library:add-recipe-to-photo', photoId, recipeId),
+  removeRecipeFromPhoto: (photoId, recipeId) => ipcRenderer.invoke('library:remove-recipe-from-photo', photoId, recipeId),
+  setPhotoRecipe: (photoId, recipeId) => ipcRenderer.invoke('library:set-photo-recipe', photoId, recipeId),
+  getPhotosByRecipe: (recipeId, page, pageSize) => ipcRenderer.invoke('library:get-photos-by-recipe', recipeId, page, pageSize),
 });

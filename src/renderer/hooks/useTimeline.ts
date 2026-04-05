@@ -6,15 +6,15 @@ import { useState, useEffect } from 'react';
 import { Photo } from '../types';
 import { convertDbPhotoToPhoto } from '../utils/fileUtils';
 import '../types/electronAPI';
+import { PLACEHOLDER_IMAGE } from '../constants/assets';
 
-// Mock Photos for local mode
 const mockPhotos: Photo[] = [
   {
     id: '1',
     fileName: 'test-photo-1.jpg',
     filePath: 'test-photos/test-photo-1.jpg',
-    thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
-    previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20landscape&image_size=square',
+    thumbnailUrl: PLACEHOLDER_IMAGE,
+    previewUrl: PLACEHOLDER_IMAGE,
     hash: 'test1',
     cameraModel: 'FUJIFILM X-T4',
     dateTime: new Date(Date.now() - 86400000).toISOString(),
@@ -29,8 +29,8 @@ const mockPhotos: Photo[] = [
     id: '2',
     fileName: 'test-photo-2.jpg',
     filePath: 'test-photos/test-photo-2.jpg',
-    thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20portrait&image_size=square',
-    previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20portrait&image_size=square',
+    thumbnailUrl: PLACEHOLDER_IMAGE,
+    previewUrl: PLACEHOLDER_IMAGE,
     hash: 'test2',
     cameraModel: 'FUJIFILM X-T4',
     dateTime: new Date(Date.now() - 172800000).toISOString(),
@@ -45,8 +45,8 @@ const mockPhotos: Photo[] = [
     id: '3',
     fileName: 'test-photo-3.jpg',
     filePath: 'test-photos/test-photo-3.jpg',
-    thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20street&image_size=square',
-    previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20street&image_size=square',
+    thumbnailUrl: PLACEHOLDER_IMAGE,
+    previewUrl: PLACEHOLDER_IMAGE,
     hash: 'test3',
     cameraModel: 'FUJIFILM X-T4',
     dateTime: new Date(Date.now() - 259200000).toISOString(),
@@ -61,8 +61,8 @@ const mockPhotos: Photo[] = [
     id: '4',
     fileName: 'test-photo-4.jpg',
     filePath: 'test-photos/test-photo-4.jpg',
-    thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20nature&image_size=square',
-    previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20nature&image_size=square',
+    thumbnailUrl: PLACEHOLDER_IMAGE,
+    previewUrl: PLACEHOLDER_IMAGE,
     hash: 'test4',
     cameraModel: 'FUJIFILM X-T4',
     dateTime: new Date(Date.now() - 345600000).toISOString(),
@@ -77,8 +77,8 @@ const mockPhotos: Photo[] = [
     id: '5',
     fileName: 'test-photo-5.jpg',
     filePath: 'test-photos/test-photo-5.jpg',
-    thumbnailUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20architecture&image_size=square',
-    previewUrl: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo%20architecture&image_size=square',
+    thumbnailUrl: PLACEHOLDER_IMAGE,
+    previewUrl: PLACEHOLDER_IMAGE,
     hash: 'test5',
     cameraModel: 'FUJIFILM X-T4',
     dateTime: new Date(Date.now() - 432000000).toISOString(),
