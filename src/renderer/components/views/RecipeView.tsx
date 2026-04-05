@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Plus, Search, Edit3, Share2, Film, Eye, ChevronRight, X, Trash2 } from 'lucide-react';
+import { Plus, Search, Edit3, Share2, Film, Eye, ChevronRight, X, Trash2, Image as ImageIcon, ChevronLeft, RefreshCw } from 'lucide-react';
 import { Recipe, Photo, User } from '../../types';
 import { FILM_MODES } from '../../constants/filmModes';
 import { cn } from '../../lib/utils';
@@ -10,6 +10,7 @@ import { FilmSettingCard } from '../common/FilmSettingCard';
 import { recipeService } from '../../services/recipeService';
 import { ConfirmModal } from '../modals/ConfirmModal';
 import { useLanguage } from '../../hooks/useLanguage';
+import { convertDbPhotoToPhoto } from '../../utils/fileUtils';
 
 interface RecipeViewProps {
   recipes: Recipe[];
@@ -19,52 +20,99 @@ interface RecipeViewProps {
   onRecipesChange: (recipes: Recipe[]) => void;
 }
 
+const DEFAULT_RECIPE_FORM: Partial<Recipe> = {
+  name: '',
+  filmMode: 'Classic Chrome',
+  whiteBalance: 'Auto',
+  whiteBalanceShift: '0, 0',
+  dynamicRange: 'DR100',
+  sharpness: '0',
+  saturation: '0',
+  contrast: '0',
+  highlightTone: '0',
+  shadowTone: '0',
+  noiseReduction: '0',
+  clarity: '0',
+  grainEffect: 'Off, Off',
+  colorChromeEffect: 'Off',
+  colorChromeEffectBlue: 'Off',
+  isFavorite: false,
+};
+
 export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: RecipeViewProps) {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  const [detailRecipe, setDetailRecipe] = useState<Recipe | null>(null);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  const [newRecipe, setNewRecipe] = useState<Partial<Recipe>>({
-    name: '',
-    filmMode: 'Classic Chrome',
-    whiteBalance: 'Auto',
-    whiteBalanceShift: '0, 0',
-    dynamicRange: 'DR100',
-    sharpness: '0',
-    saturation: '0',
-    contrast: '0',
-    highlightTone: '0',
-    shadowTone: '0',
-    noiseReduction: '0',
-    clarity: '0',
-    grainEffect: 'Off, Off',
-    colorChromeEffect: 'Off',
-    colorChromeEffectBlue: 'Off',
-    isFavorite: false,
-    ownerId: user?.uid || 'local'
+  const [recipePhotosMap, setRecipePhotosMap] = useState<Record<string, Photo[]>>({});
+  const [thumbnailDir, setThumbnailDir] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [lockedRecipeDetailId, setLockedRecipeDetailId] = useState<string | null>(null);
+  const getDefaultRecipeForm = (): Partial<Recipe> => ({
+    ...DEFAULT_RECIPE_FORM,
+    ownerId: user?.uid || 'local',
   });
+  const [newRecipe, setNewRecipe] = useState<Partial<Recipe>>(getDefaultRecipeForm);
 
   useEffect(() => {
     loadRecipes();
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.getThumbnailDir) return;
+    window.electronAPI.getThumbnailDir().then(setThumbnailDir).catch(() => setThumbnailDir(null));
   }, []);
 
   const loadRecipes = async () => {
     setLoading(true);
     const loadedRecipes = await recipeService.loadAllRecipes();
     onRecipesChange(loadedRecipes);
+    await hydrateRecipePhotos(loadedRecipes);
     setLoading(false);
+  };
+
+  const toPreviewUrl = (filePath: string) => {
+    const normalized = (filePath || '').replace(/\\/g, '/');
+    return `file:///${encodeURI(normalized)}`;
+  };
+
+  const loadRecipePhotos = async (recipeId: string, pageSize = 60): Promise<Photo[]> => {
+    if (!window.electronAPI?.getPhotosByRecipe) return [];
+    const res = await window.electronAPI.getPhotosByRecipe(Number(recipeId), 1, pageSize);
+    return (res?.items || []).map((p: any) => convertDbPhotoToPhoto(p, thumbnailDir));
+  };
+
+  const hydrateRecipePhotos = async (targetRecipes: Recipe[]) => {
+    if (!window.electronAPI?.getPhotosByRecipe || targetRecipes.length === 0) {
+      setRecipePhotosMap({});
+      return;
+    }
+    const entries = await Promise.all(targetRecipes.map(async (recipe) => {
+      const items = await loadRecipePhotos(recipe.id, 12);
+      return [recipe.id, items] as const;
+    }));
+    setRecipePhotosMap(Object.fromEntries(entries));
   };
 
   const handleCreate = async () => {
     if (!newRecipe.name) return;
     const created = await recipeService.createRecipe(newRecipe);
     if (created) {
-      onRecipesChange([...recipes, created]);
+      if (selectedImages.length > 0 && window.electronAPI?.addRecipeDisplayPhotos) {
+        await window.electronAPI.addRecipeDisplayPhotos(Number(created.id), selectedImages);
+      }
+      const nextRecipes = [...recipes, created];
+      onRecipesChange(nextRecipes);
+      await hydrateRecipePhotos(nextRecipes);
       setIsCreating(false);
       resetForm();
+      setSelectedImages([]);
+      setIsAnalyzing(false);
     }
   };
 
@@ -88,47 +136,168 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
     setShowDeleteConfirm(null);
   };
 
-  const handleToggleFavorite = async (recipeId: string) => {
-    const success = await recipeService.toggleFavorite(recipeId);
-    if (success) {
-      onRecipesChange(recipes.map(r => 
-        r.id === recipeId ? { ...r, isFavorite: !r.isFavorite } : r
-      ));
-    }
-  };
-
   const resetForm = () => {
-    setNewRecipe({
-      name: '',
-      filmMode: 'Classic Chrome',
-      whiteBalance: 'Auto',
-      whiteBalanceShift: '0, 0',
-      dynamicRange: 'DR100',
-      sharpness: '0',
-      saturation: '0',
-      contrast: '0',
-      highlightTone: '0',
-      shadowTone: '0',
-      noiseReduction: '0',
-      clarity: '0',
-      grainEffect: 'Off, Off',
-      colorChromeEffect: 'Off',
-      colorChromeEffectBlue: 'Off',
-      isFavorite: false,
-      ownerId: user?.uid || 'local'
-    });
+    setNewRecipe(getDefaultRecipeForm());
   };
 
   const filteredRecipes = recipes.filter(r => 
     r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.filmMode?.toLowerCase().includes(searchQuery.toLowerCase())
+    (r.filmMode && r.filmMode.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const selectedRecipe = recipes.find(r => r.id === selectedRecipeId);
-  const recipePhotos = photos.filter(p => p.recipeId === selectedRecipeId);
+  const selectedRecipe = recipes.find(r => r.id === selectedRecipeId) || detailRecipe;
+  const recipePhotos = selectedRecipeId ? (recipePhotosMap[selectedRecipeId] || []) : [];
+  const carouselRef = useRef<HTMLDivElement>(null);
+  
+  const scrollCarousel = (direction: 'left' | 'right') => {
+    if (!carouselRef.current) return;
+    const scrollAmount = carouselRef.current.clientWidth;
+    carouselRef.current.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    });
+  };
+  
+  const handleImageSelect = async () => {
+    if (!window.electronAPI?.pickFiles) return;
+    const picked = await window.electronAPI.pickFiles();
+    if (!picked || picked.length === 0) return;
+    setSelectedImages(prev => [...prev, ...picked]);
+  };
+
+  const handleAddPhotosToRecipe = async (recipeId: string) => {
+    if (!window.electronAPI?.pickFiles || !window.electronAPI?.addRecipeDisplayPhotos) return;
+    setLockedRecipeDetailId(recipeId);
+    setSelectedRecipeId(recipeId);
+    try {
+      const picked = await window.electronAPI.pickFiles();
+      if (!picked || picked.length === 0) return;
+      await window.electronAPI.addRecipeDisplayPhotos(Number(recipeId), picked);
+      const items = await loadRecipePhotos(recipeId, 60);
+      setRecipePhotosMap(prev => ({ ...prev, [recipeId]: items }));
+      setSelectedRecipeId(recipeId);
+    } finally {
+      setLockedRecipeDetailId(null);
+    }
+  };
+
+  const handleRemovePhotoFromRecipe = async (recipeId: string, photoId: string) => {
+    if (!window.electronAPI?.removeRecipeFromPhoto) return;
+    await window.electronAPI.removeRecipeFromPhoto(Number(photoId), Number(recipeId));
+    const items = await loadRecipePhotos(recipeId, 60);
+    setRecipePhotosMap((prev) => ({ ...prev, [recipeId]: items }));
+    setSelectedRecipeId(recipeId);
+  };
+
+  const handleRecognizeRecipe = async () => {
+    const defaults = getDefaultRecipeForm();
+    if (selectedImages.length === 0) {
+      setNewRecipe((prev) => ({ ...defaults, ...prev }));
+      return;
+    }
+    setIsAnalyzing(true);
+    try {
+      let recognized: any = null;
+      if (window.electronAPI?.recognizeRecipe) {
+        recognized = await window.electronAPI.recognizeRecipe(selectedImages[0]);
+      }
+      if (!recognized || typeof recognized !== 'object') {
+        setNewRecipe((prev) => ({ ...defaults, ...prev }));
+        return;
+      }
+      setNewRecipe((prev) => ({
+        ...defaults,
+        ...prev,
+        name: recognized.name || recognized.recipeName || prev.name || '',
+        description: recognized.description || prev.description || '',
+        filmMode: recognized.film_mode || recognized.filmMode || prev.filmMode || defaults.filmMode,
+        whiteBalance: recognized.white_balance || recognized.whiteBalance || prev.whiteBalance || defaults.whiteBalance,
+        whiteBalanceShift: recognized.white_balance_shift || recognized.whiteBalanceShift || prev.whiteBalanceShift || defaults.whiteBalanceShift,
+        dynamicRange: recognized.dynamic_range || recognized.dynamicRange || prev.dynamicRange || defaults.dynamicRange,
+        sharpness: String(recognized.sharpness ?? prev.sharpness ?? defaults.sharpness),
+        saturation: String(recognized.saturation ?? recognized.color ?? prev.saturation ?? defaults.saturation),
+        contrast: String(recognized.contrast ?? prev.contrast ?? defaults.contrast),
+        clarity: String(recognized.clarity ?? prev.clarity ?? defaults.clarity),
+        shadowTone: String(recognized.shadow_tone ?? recognized.shadowTone ?? prev.shadowTone ?? defaults.shadowTone),
+        highlightTone: String(recognized.highlight_tone ?? recognized.highlightTone ?? prev.highlightTone ?? defaults.highlightTone),
+        noiseReduction: String(recognized.noise_reduction ?? recognized.noiseReduction ?? prev.noiseReduction ?? defaults.noiseReduction),
+        grainEffect: recognized.grain_effect || recognized.grainEffect || prev.grainEffect || defaults.grainEffect,
+        colorChromeEffect: recognized.color_chrome_effect || recognized.colorChromeEffect || prev.colorChromeEffect || defaults.colorChromeEffect,
+        colorChromeEffectBlue: recognized.color_chrome_effect_blue || recognized.colorChromeEffectBlue || prev.colorChromeEffectBlue || defaults.colorChromeEffectBlue,
+      }));
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedRecipeId) return;
+    if (recipePhotosMap[selectedRecipeId]) return;
+    loadRecipePhotos(selectedRecipeId, 60)
+      .then((items) => setRecipePhotosMap((prev) => ({ ...prev, [selectedRecipeId]: items })))
+      .catch(() => {});
+  }, [selectedRecipeId, recipePhotosMap]);
+
+  useEffect(() => {
+    if (!lockedRecipeDetailId) return;
+    if (selectedRecipeId === lockedRecipeDetailId) return;
+    setSelectedRecipeId(lockedRecipeDetailId);
+  }, [lockedRecipeDetailId, selectedRecipeId]);
+
+  useEffect(() => {
+    if (!selectedRecipeId) {
+      setDetailRecipe(null);
+      return;
+    }
+    const current = recipes.find((r) => r.id === selectedRecipeId);
+    if (current) {
+      setDetailRecipe(current);
+    }
+  }, [recipes, selectedRecipeId]);
 
   const renderRecipeForm = (recipe: Partial<Recipe>, setRecipe: (r: Partial<Recipe>) => void, onSubmit: () => void, submitLabel: string) => (
     <div className="p-10 space-y-10 overflow-y-auto custom-scrollbar">
+      {/* Image Selection Section */}
+      <div className="space-y-6">
+        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.recipePhotos')}</label>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {selectedImages.map((filePath, i) => (
+            <div key={i} className="aspect-square rounded-2xl overflow-hidden bg-slate-500/10 relative group">
+              <img src={toPreviewUrl(filePath)} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <button 
+                onClick={() => setSelectedImages(prev => prev.filter((_, idx) => idx !== i))}
+                className="absolute top-2 right-2 p-1.5 bg-black/40 backdrop-blur-md text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={handleImageSelect}
+            className="aspect-square rounded-2xl border-2 border-dashed border-[var(--border-color)] flex flex-col items-center justify-center space-y-2 hover:bg-slate-500/5 transition-all cursor-pointer group"
+          >
+            <Plus className="w-6 h-6 text-slate-400 group-hover:text-blue-500 transition-colors" />
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-blue-500">{t('recipe.addPhoto')}</span>
+          </button>
+        </div>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleRecognizeRecipe}
+            className="px-4 py-2 bg-slate-500/10 hover:bg-slate-500/15 rounded-xl text-[10px] font-black uppercase tracking-widest border border-[var(--border-color)]"
+          >
+            识别
+          </button>
+        </div>
+        {isAnalyzing && (
+          <div className="flex items-center gap-3 text-blue-500 bg-blue-500/5 p-4 rounded-2xl border border-blue-500/20">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span className="text-[10px] font-black uppercase tracking-widest">识别中</span>
+          </div>
+        )}
+      </div>
+
       <div className="space-y-3">
         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.recipeName')}</label>
         <input 
@@ -281,11 +450,13 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-10">
+      <div className="flex-1 min-h-0 relative">
         <div className={cn(
-          "h-full overflow-y-auto pr-4 custom-scrollbar space-y-6", 
-          selectedRecipeId ? "lg:col-span-4" : "lg:col-span-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 space-y-0"
+          "h-full grid grid-cols-1 lg:grid-cols-12 gap-10 transition-all duration-500",
+          selectedRecipeId ? "opacity-0 pointer-events-none translate-x-[-20px]" : "opacity-100"
         )}>
+          <div className="lg:col-span-12 h-full overflow-y-auto pr-4 custom-scrollbar">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
           {filteredRecipes.length === 0 ? (
             <div className="col-span-full flex flex-col items-center justify-center py-32 text-slate-400 space-y-6">
               <div className="w-20 h-20 bg-slate-500/5 rounded-full flex items-center justify-center">
@@ -300,152 +471,279 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
               </button>
             </div>
           ) : (
-            filteredRecipes.map(recipe => (
-              <motion.div 
-                layout
-                key={recipe.id} 
-                onClick={() => setSelectedRecipeId(recipe.id === selectedRecipeId ? null : recipe.id)}
-                className={cn(
-                  "glass-card rounded-3xl p-8 space-y-6 group cursor-pointer transition-all border-2",
-                  selectedRecipeId === recipe.id ? "border-blue-500 ring-4 ring-blue-500/10" : "border-transparent hover:border-blue-500/30"
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <h3 className="font-black text-xl tracking-tight">{recipe.name}</h3>
-                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{recipe.filmMode}</p>
+            filteredRecipes.map(recipe => {
+              const recipeCover = recipePhotosMap[recipe.id]?.[0];
+              const displayImage = recipeCover?.thumbnailUrl;
+              return (
+                <motion.div 
+                  layout
+                  key={recipe.id} 
+                  onClick={() => {
+                    setSelectedRecipeId(recipe.id);
+                    setDetailRecipe(recipe);
+                  }}
+                  className="glass-card rounded-3xl overflow-hidden group cursor-pointer transition-all border-2 border-transparent hover:border-blue-500/30 flex flex-col"
+                >
+                  {/* Card Image Preview */}
+                  <div className="h-48 w-full relative overflow-hidden bg-slate-500/10">
+                    {displayImage ? (
+                      <img 
+                        src={displayImage} 
+                        alt="" 
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Film className="w-8 h-8 text-slate-500/20" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
+                    <div className="absolute bottom-4 left-6">
+                      <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">{recipe.filmMode}</p>
+                    </div>
                   </div>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); handleToggleFavorite(recipe.id); }}
-                    className="p-1"
-                  >
-                    <Heart className={cn("w-6 h-6 transition-all", recipe.isFavorite ? "text-red-500 fill-red-500" : "text-slate-300 group-hover:text-red-500/50")} />
-                  </button>
-                </div>
-                
-                {!selectedRecipeId && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <FilmTag label="WB" value={recipe.whiteBalance} />
-                    <FilmTag label="DR" value={recipe.dynamicRange} />
-                    <FilmTag label="Sharp" value={recipe.sharpness} />
-                    <FilmTag label="Color" value={recipe.saturation} />
-                  </div>
-                )}
 
-                <div className="pt-6 border-t border-[var(--border-color)] flex items-center justify-between">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    {photos.filter(p => p.recipeId === recipe.id).length} {t('recipe.photos')}
-                  </span>
-                  <div className="flex items-center gap-2 text-blue-500">
-                    <span className="text-[10px] font-black uppercase tracking-widest">{t('recipe.details')}</span>
-                    <ChevronRight className="w-4 h-4" />
+                  <div className="p-8 space-y-6 flex-1 flex flex-col">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-black text-xl tracking-tight">{recipe.name}</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-4 gap-2">
+                      <FilmTag label="WB" value={`${recipe.whiteBalance} ${recipe.whiteBalanceShift || ''}`} className="col-span-2" />
+                      <FilmTag label="DR" value={recipe.dynamicRange} />
+                      <FilmTag label="CLR" value={recipe.saturation} />
+                      <FilmTag label="TONE" value={`H${recipe.highlightTone} S${recipe.shadowTone}`} className="col-span-2" />
+                      <FilmTag label="GRAIN" value={recipe.grainEffect?.replace(', ', ' ') || 'Off'} className="col-span-2" />
+                      <FilmTag label="CHROME" value={`C${recipe.colorChromeEffect?.charAt(0)} B${recipe.colorChromeEffectBlue?.charAt(0)}`} className="col-span-2" />
+                      <FilmTag label="DETAIL" value={`S${recipe.sharpness} N${recipe.noiseReduction} C${recipe.clarity}`} className="col-span-2" />
+                    </div>
+
+                    <div className="mt-auto pt-6 border-t border-[var(--border-color)] flex items-center justify-between">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        {(recipePhotosMap[recipe.id] || []).length} {t('recipe.photos')}
+                      </span>
+                      <div className="flex items-center gap-2 text-blue-500">
+                        <span className="text-[10px] font-black uppercase tracking-widest">{t('recipe.details')}</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })
+          )}
+        </div>
+        </div>
+        </div>
+
+        {/* Recipe Details Panel - Full Screen Overlay */}
+        <AnimatePresence>
+          {selectedRecipeId && selectedRecipe && (() => {
+            // Parse WB Shift
+            const wbShift = selectedRecipe.whiteBalanceShift ? selectedRecipe.whiteBalanceShift.split(',').map(s => s.trim()) : [];
+            const wbRed = wbShift[0] || '0';
+            const wbBlue = wbShift[1] || '0';
+
+            // Parse Grain Effect
+            const grainParts = selectedRecipe.grainEffect ? selectedRecipe.grainEffect.split(',').map(s => s.trim()) : [];
+            const grainRoughness = grainParts[0] || 'Off';
+            const grainSize = grainParts[1] || 'Off';
+
+            const allImages = recipePhotos.map(p => p.thumbnailUrl);
+
+            return (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="absolute inset-0 z-10 h-full overflow-y-auto custom-scrollbar"
+              >
+                <div className="glass-card rounded-[2.5rem] p-5 space-y-3 min-h-full">
+                  <div className="flex items-center justify-between">
+                    <button 
+                      onClick={() => {
+                        setSelectedRecipeId(null);
+                        setDetailRecipe(null);
+                      }}
+                      className="flex items-center gap-3 text-slate-400 hover:text-blue-500 transition-colors group"
+                    >
+                      <div className="p-2 bg-slate-500/5 rounded-xl group-hover:bg-blue-500/10 transition-all">
+                        <ChevronLeft className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest">{t('recipe.backToList')}</span>
+                    </button>
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={() => setEditingRecipe(selectedRecipe)}
+                        className="p-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl transition-all border border-[var(--border-color)]"
+                      >
+                        <Edit3 className="w-5 h-5 text-slate-400" />
+                      </button>
+                      <button 
+                        onClick={() => setShowDeleteConfirm(selectedRecipe.id)}
+                        className="p-4 bg-slate-500/5 hover:bg-red-500/10 rounded-2xl transition-all border border-[var(--border-color)] hover:border-red-500/20"
+                      >
+                        <Trash2 className="w-5 h-5 text-slate-400 hover:text-red-500" />
+                      </button>
+                      <button className="p-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl transition-all border border-[var(--border-color)]">
+                        <Share2 className="w-5 h-5 text-slate-400" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Carousel Section */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                    <div className="lg:col-span-7 space-y-3">
+                      {allImages.length > 0 ? (
+                        <div className="relative h-[420px] rounded-[2.5rem] overflow-hidden group/carousel shadow-2xl">
+                          <div 
+                            ref={carouselRef}
+                            className="flex h-full overflow-x-auto snap-x snap-mandatory custom-scrollbar-hide"
+                          >
+                            {allImages.map((img, i) => (
+                              <div key={i} className="flex-none w-full h-full snap-center">
+                                <img 
+                                  src={img} 
+                                  alt="" 
+                                  className="w-full h-full object-cover" 
+                                  referrerPolicy="no-referrer"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          
+                          {/* Carousel Indicators */}
+                          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2">
+                            {allImages.map((_, i) => (
+                              <div key={i} className="w-2 h-2 rounded-full bg-white/30 backdrop-blur-md" />
+                            ))}
+                          </div>
+                          
+                          {/* Navigation Overlay */}
+                          <div className="absolute inset-0 flex items-center justify-between px-8 opacity-0 group-hover/carousel:opacity-100 transition-opacity">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); scrollCarousel('left'); }}
+                              className="p-4 bg-black/20 backdrop-blur-xl text-white rounded-full hover:bg-black/40 transition-all border border-white/10"
+                            >
+                              <ChevronLeft className="w-6 h-6" />
+                            </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); scrollCarousel('right'); }}
+                              className="p-4 bg-black/20 backdrop-blur-xl text-white rounded-full hover:bg-black/40 transition-all border border-white/10"
+                            >
+                              <ChevronRight className="w-6 h-6" />
+                            </button>
+                          </div>
+
+                          <button 
+                            className="absolute top-6 right-6 p-4 bg-white/10 backdrop-blur-xl text-white rounded-2xl hover:bg-white/20 transition-all border border-white/10 flex items-center gap-2"
+                            onClick={() => handleAddPhotosToRecipe(selectedRecipe.id)}
+                          >
+                            <Plus className="w-5 h-5" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">{t('recipe.addPhoto')}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="h-[500px] rounded-[2.5rem] bg-slate-500/5 border-2 border-dashed border-[var(--border-color)] flex flex-col items-center justify-center space-y-4">
+                          <div className="w-20 h-20 bg-slate-500/10 rounded-3xl flex items-center justify-center">
+                            <ImageIcon className="w-10 h-10 text-slate-400" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-bold text-slate-400">{t('recipe.noPhotosForRecipe')}</p>
+                            <button 
+                              className="mt-4 text-blue-500 text-[10px] font-black uppercase tracking-widest hover:underline"
+                              onClick={() => handleAddPhotosToRecipe(selectedRecipe.id)}
+                            >
+                              {t('recipe.uploadFirstPhoto')}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="lg:col-span-5 space-y-4">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-4">
+                          <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center">
+                            <Film className="w-8 h-8 text-blue-500" />
+                          </div>
+                          <div>
+                            <h2 className="text-3xl font-black tracking-tight">{selectedRecipe.name}</h2>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="px-4 py-1.5 bg-blue-500/10 text-blue-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                {selectedRecipe.filmMode}
+                              </span>
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.createdByYou')}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {selectedRecipe.description && (
+                          <p className="text-slate-400 font-medium leading-relaxed text-sm">{selectedRecipe.description}</p>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { label: t('recipe.whiteBalance'), value: selectedRecipe.whiteBalance },
+                          { label: t('recipe.dynamicRange'), value: selectedRecipe.dynamicRange },
+                          { label: t('recipe.highlight'), value: selectedRecipe.highlightTone },
+                          { label: t('recipe.shadow'), value: selectedRecipe.shadowTone },
+                          { label: t('recipe.color'), value: selectedRecipe.saturation },
+                          { label: t('recipe.sharpness'), value: selectedRecipe.sharpness },
+                          { label: t('recipe.noiseReduction'), value: selectedRecipe.noiseReduction },
+                          { label: t('recipe.clarity'), value: selectedRecipe.clarity },
+                          { label: t('recipe.grainRoughness'), value: grainRoughness },
+                          { label: t('recipe.grainSize'), value: grainSize },
+                          { label: t('recipe.colorChrome'), value: selectedRecipe.colorChromeEffect },
+                          { label: t('recipe.fxBlue'), value: selectedRecipe.colorChromeEffectBlue },
+                          { label: t('recipe.wbRed'), value: wbRed },
+                          { label: t('recipe.wbBlue'), value: wbBlue },
+                        ].map(stat => (
+                          <FilmSettingCard key={stat.label} label={stat.label} value={stat.value} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-2 border-t border-[var(--border-color)]">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-black tracking-tight">{t('recipe.communityPhotos')}</h3>
+                      <button className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline">{t('recipe.exploreMore')}</button>
+                    </div>
+                    <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar-hide">
+                      {recipePhotos.map(photo => (
+                        <div key={photo.id} className="flex-none w-28 h-28 rounded-xl overflow-hidden bg-slate-500/10 group relative shadow-lg">
+                          <img src={photo.thumbnailUrl} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" referrerPolicy="no-referrer" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Eye className="w-4 h-4 text-white" />
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemovePhotoFromRecipe(selectedRecipe.id, photo.id);
+                            }}
+                            className="absolute top-1.5 right-1.5 p-1.5 bg-black/45 hover:bg-red-500/80 text-white rounded-md border border-white/20 opacity-0 group-hover:opacity-100 transition-all"
+                            title={t('recipe.delete')}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <button 
+                        className="flex-none w-28 h-28 rounded-xl border-2 border-dashed border-[var(--border-color)] flex flex-col items-center justify-center space-y-1 hover:bg-slate-500/5 transition-all group"
+                        onClick={() => handleAddPhotosToRecipe(selectedRecipe.id)}
+                      >
+                        <Plus className="w-5 h-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.addPhoto')}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </motion.div>
-            ))
-          )}
-        </div>
-
-        {selectedRecipeId && selectedRecipe && (() => {
-          const wbShift = selectedRecipe.whiteBalanceShift?.split(',').map(s => s.trim()) || [];
-          const wbRed = wbShift[0] || '0';
-          const wbBlue = wbShift[1] || '0';
-
-          const grainParts = selectedRecipe.grainEffect?.split(',').map(s => s.trim()) || [];
-          const grainRoughness = grainParts[0] || 'Off';
-          const grainSize = grainParts[1] || 'Off';
-
-          return (
-            <motion.div 
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="lg:col-span-8 h-full overflow-y-auto pr-4 custom-scrollbar"
-            >
-              <div className="glass-card rounded-[2.5rem] p-10 space-y-10">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-6">
-                    <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center">
-                      <Film className="w-8 h-8 text-blue-500" />
-                    </div>
-                    <div>
-                      <h2 className="text-3xl font-black tracking-tight">{selectedRecipe.name}</h2>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="px-3 py-1 bg-blue-500/10 text-blue-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                          {selectedRecipe.filmMode}
-                        </span>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('recipe.createdByYou')}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <button 
-                      onClick={() => setEditingRecipe(selectedRecipe)}
-                      className="p-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl transition-all border border-[var(--border-color)]"
-                    >
-                      <Edit3 className="w-5 h-5 text-slate-400" />
-                    </button>
-                    <button 
-                      onClick={() => setShowDeleteConfirm(selectedRecipe.id)}
-                      className="p-4 bg-slate-500/5 hover:bg-red-500/10 rounded-2xl transition-all border border-[var(--border-color)] hover:border-red-500/20"
-                    >
-                      <Trash2 className="w-5 h-5 text-slate-400 hover:text-red-500" />
-                    </button>
-                    <button className="p-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl transition-all border border-[var(--border-color)]">
-                      <Share2 className="w-5 h-5 text-slate-400" />
-                    </button>
-                  </div>
-                </div>
-
-                {selectedRecipe.description && (
-                  <p className="text-sm text-slate-500 leading-relaxed">{selectedRecipe.description}</p>
-                )}
-
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-                  {[
-                    { label: t('recipe.whiteBalance'), value: selectedRecipe.whiteBalance },
-                    { label: t('recipe.dynamicRange'), value: selectedRecipe.dynamicRange },
-                    { label: t('recipe.highlight'), value: selectedRecipe.highlightTone },
-                    { label: t('recipe.shadow'), value: selectedRecipe.shadowTone },
-                    { label: t('recipe.color'), value: selectedRecipe.saturation },
-                    { label: t('recipe.sharpness'), value: selectedRecipe.sharpness },
-                    { label: t('recipe.noiseReduction'), value: selectedRecipe.noiseReduction },
-                    { label: t('recipe.clarity'), value: selectedRecipe.clarity },
-                    { label: t('recipe.grainRoughness'), value: grainRoughness },
-                    { label: t('recipe.grainSize'), value: grainSize },
-                    { label: t('recipe.colorChrome'), value: selectedRecipe.colorChromeEffect },
-                    { label: t('recipe.fxBlue'), value: selectedRecipe.colorChromeEffectBlue },
-                    { label: t('recipe.wbRed'), value: wbRed },
-                    { label: t('recipe.wbBlue'), value: wbBlue },
-                  ].map(stat => (
-                    <FilmSettingCard key={stat.label} label={stat.label} value={stat.value} />
-                  ))}
-                </div>
-
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t('recipe.photosUsingRecipe')}</h3>
-                    <button className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline">{t('recipe.viewAll')}</button>
-                  </div>
-                  <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
-                    {recipePhotos.slice(0, 5).map(photo => (
-                      <div key={photo.id} className="aspect-square rounded-2xl overflow-hidden bg-slate-500/10 group relative">
-                        <img src={photo.thumbnailUrl} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" referrerPolicy="no-referrer" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <Eye className="w-6 h-6 text-white" />
-                        </div>
-                      </div>
-                    ))}
-                    {recipePhotos.length === 0 && (
-                      <div className="col-span-full py-10 text-center border-2 border-dashed border-slate-500/10 rounded-3xl">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('recipe.noPhotosYet')}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          );
-        })()}
+            );
+          })()}
+        </AnimatePresence>
       </div>
 
       <AnimatePresence>
