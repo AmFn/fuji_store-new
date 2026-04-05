@@ -149,6 +149,9 @@ export default function App() {
     loading: timelineLoading 
   } = useTimeline();
 
+  // 使用键盘导航钩子
+  useKeyboardNavigation(selectedPhoto, filteredPhotos, setSelectedPhoto, () => setSelectedPhoto(null));
+
   // 不再使用模拟数据，依赖usePhotoLibrary钩子从服务层获取数据
 
   // Theme management
@@ -1109,4 +1112,38 @@ export default function App() {
       </AnimatePresence>
     </div>
   );
+}
+
+// 键盘导航支持
+function useKeyboardNavigation(selectedPhoto: Photo | null, filteredPhotos: Photo[], onSelectPhoto: (photo: Photo) => void, onClose: () => void) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedPhoto) return;
+      
+      const currentIndex = filteredPhotos.findIndex(p => p.id === selectedPhoto.id);
+      if (currentIndex === -1) return;
+      
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (currentIndex > 0) {
+            onSelectPhoto(filteredPhotos[currentIndex - 1]);
+          }
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          if (currentIndex < filteredPhotos.length - 1) {
+            onSelectPhoto(filteredPhotos[currentIndex + 1]);
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          onClose();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedPhoto, filteredPhotos, onSelectPhoto, onClose]);
 }
