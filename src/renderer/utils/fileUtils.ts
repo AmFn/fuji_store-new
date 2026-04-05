@@ -73,10 +73,14 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
   // 检查是否在Electron环境中
   const isElectron = typeof window !== 'undefined' && window.electronAPI;
 
-  if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash && typeof thumbDir === 'string') {
-    if (isElectron) {
-      thumbnailUrl = toFileUrl(`${thumbDir.replace(/\\/g, '/')}/${dbPhoto.hash}_thumb.jpg`);
+  if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash) {
+    if (isElectron && typeof thumbDir === 'string') {
+      thumbnailUrl = toFileUrl(`${thumbDir.replace(/\\/g, '/')}/${dbPhoto.hash}.jpg`);
       previewUrl = toFileUrl(dbPhoto.path);
+    } else if (isElectron && dbPhoto.path) {
+      // 如果没有thumbDir，但在Electron环境中，使用原始图片路径
+      previewUrl = toFileUrl(dbPhoto.path);
+      thumbnailUrl = toFileUrl(dbPhoto.path);
     } else {
       // 在Web环境中，使用占位图片
       thumbnailUrl = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Fuji%20camera%20photo&image_size=square`;

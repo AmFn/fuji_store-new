@@ -41,6 +41,7 @@ export function usePhotoLibrary() {
     try {
       if (window.electronAPI) {
         const dir = await window.electronAPI.getThumbnailDir();
+        console.log('Loaded thumbnail directory:', dir);
         setThumbnailDir(dir);
         return dir;
       }

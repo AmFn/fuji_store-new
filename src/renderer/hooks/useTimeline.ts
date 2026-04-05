@@ -137,7 +137,7 @@ export function useTimeline() {
           
           while (true) {
             const dayRes = await window.electronAPI.getTimelinePhotosByDay(dayKey, dayPage, 120);
-            const rows = (dayRes?.items || []).map(convertDbPhotoToPhoto);
+            const rows = (dayRes?.items || []).map(p => convertDbPhotoToPhoto(p, null));
             allTimelinePhotos.push(...rows);
             
             const totalPages = dayRes?.totalPages || dayPage;

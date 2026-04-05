@@ -116,7 +116,7 @@ export function PhotoDetailModal({
         >
           {/* Image Preview */}
           <div className="flex-1 bg-black/20 flex items-center justify-center relative group">
-            <img src={photo.thumbnailUrl} className="max-w-full max-h-full object-contain" alt={photo.fileName} />
+            <img src={photo.previewUrl} className="max-w-full max-h-full object-contain" alt={photo.fileName} />
             {photo.fileName.toLowerCase().endsWith('.raf') && (
               <div className="absolute top-8 right-8 px-4 py-2 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg">
                 RAW / RAF
