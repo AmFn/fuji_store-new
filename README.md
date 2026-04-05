@@ -1,20 +1,85 @@
+# Fuji Station
+
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+<img width="1200" height="475" alt="Fuji Station Banner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+A modern desktop photo management application with Fujifilm Film Simulation Recipe support, built with Electron, React, and Vite.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/4ca37cbd-22e7-4168-a2e1-bf2f8bed95f5
+- **Photo Management**: Import, organize, and browse your photo collection
+- **Film Simulation Recipes**: Create and manage Fujifilm film simulation recipes
+- **AI Recognition**: Automatically recognize film recipes from your photos
+- **Metadata Support**: Read and display EXIF metadata from Fujifilm RAW and JPEG files
+- **Thumbnail Generation**: Automatic thumbnail and preview generation
+- **Dark Mode**: Full dark mode support
 
-## Run Locally
+## Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React 19, TypeScript, Vite, TailwindCSS 4
+- **Desktop**: Electron 41
+- **Database**: SQLite (better-sqlite3)
+- **Authentication**: Firebase
+- **Animation**: Framer Motion
 
+## Development
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Prerequisites
+
+- Node.js 18+
+- npm 9+
+
+### Install Dependencies
+
+```bash
+npm install
+```
+
+### Run Development Server
+
+```bash
+npm run dev
+```
+
+### Run with Electron
+
+```bash
+npm start
+```
+
+### Build
+
+```bash
+npm run build
+```
+
+### Rebuild Native Modules
+
+If you encounter native module errors, rebuild them:
+
+```bash
+npx electron-rebuild
+```
+
+## Project Structure
+
+```
+fuji-store-new/
+├── src/
+│   ├── main/           # Electron main process
+│   ├── preload/         # Preload scripts
+│   └── renderer/       # React frontend
+│       ├── components/  # UI components
+│       ├── services/   # Business logic
+│       ├── hooks/      # React hooks
+│       ├── types/      # TypeScript types
+│       └── utils/      # Utilities
+├── electron/           # Electron services
+├── database/           # Database schema
+└── ui/                # UI design reference
+```
+
+## License
+
+MIT
