@@ -315,15 +315,16 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotosSql = `
-      SELECT id, path, hash, folder_id, size, width, height, created_at, updated_at, thumbnail_status, deleted,
-        film_mode, dynamic_range, color_chrome, color_chrome_blue, color_chrome_red,
-        grain_effect, grain_effect_rough, highlight_tone, shadow_tone, tone,
-        color, sharpness, clarity, noise_reduction, high_iso_noise_reduction,
-        iso, aperture, shutter_speed, exposure_compensation, exposure_mode,
-        metering_mode, white_balance, white_balance_mode, white_balance_temperature, white_balance_tint,
-        focus_mode, focus_area, af_point, flash_fired, flash_mode,
-        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location
-      FROM photos
+      SELECT p.id, p.path, p.hash, p.folder_id, p.size, p.width, p.height, p.created_at, p.updated_at, p.thumbnail_status, p.deleted,
+        p.film_mode, p.dynamic_range, p.color_chrome, p.color_chrome_blue, p.color_chrome_red,
+        p.grain_effect, p.grain_effect_rough, p.highlight_tone, p.shadow_tone, p.tone,
+        p.color, p.sharpness, p.clarity, p.noise_reduction, p.high_iso_noise_reduction,
+        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
+        p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
+        p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
+      FROM photos p
       WHERE deleted = @deleted
       ORDER BY __ORDER_FIELD__ __ORDER_DIRECTION__
       LIMIT @limit OFFSET @offset
@@ -439,11 +440,19 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotosByDay = this.db.prepare(`
-      SELECT id, path, hash, folder_id, size, width, height, created_at, updated_at, thumbnail_status, deleted
-      FROM photos
-      WHERE deleted = 0
-        AND strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') = @dayKey
-      ORDER BY created_at DESC
+      SELECT p.id, p.path, p.hash, p.folder_id, p.size, p.width, p.height, p.created_at, p.updated_at, p.thumbnail_status, p.deleted,
+        p.film_mode, p.dynamic_range, p.color_chrome, p.color_chrome_blue, p.color_chrome_red,
+        p.grain_effect, p.grain_effect_rough, p.highlight_tone, p.shadow_tone, p.tone,
+        p.color, p.sharpness, p.clarity, p.noise_reduction, p.high_iso_noise_reduction,
+        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
+        p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
+        p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
+      FROM photos p
+      WHERE p.deleted = 0
+        AND strftime('%Y-%m-%d', p.created_at / 1000, 'unixepoch', 'localtime') = @dayKey
+      ORDER BY p.created_at DESC
       LIMIT @limit OFFSET @offset
     `);
 
@@ -558,7 +567,16 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotosByTagId = this.db.prepare(`
-      SELECT p.* FROM photos p
+      SELECT p.id, p.path, p.hash, p.folder_id, p.size, p.width, p.height, p.created_at, p.updated_at, p.thumbnail_status, p.deleted,
+        p.film_mode, p.dynamic_range, p.color_chrome, p.color_chrome_blue, p.color_chrome_red,
+        p.grain_effect, p.grain_effect_rough, p.highlight_tone, p.shadow_tone, p.tone,
+        p.color, p.sharpness, p.clarity, p.noise_reduction, p.high_iso_noise_reduction,
+        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
+        p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
+        p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        (SELECT GROUP_CONCAT(t2.name, ',') FROM photo_tags pt2 JOIN tags t2 ON pt2.tag_id = t2.id WHERE pt2.photo_id = p.id) AS tags
+      FROM photos p
       INNER JOIN photo_tags pt ON p.id = pt.photo_id
       WHERE pt.tag_id = ? AND p.deleted = 0
       ORDER BY p.created_at DESC
@@ -620,7 +638,16 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotosByRecipeId = this.db.prepare(`
-      SELECT p.* FROM photos p
+      SELECT p.id, p.path, p.hash, p.folder_id, p.size, p.width, p.height, p.created_at, p.updated_at, p.thumbnail_status, p.deleted,
+        p.film_mode, p.dynamic_range, p.color_chrome, p.color_chrome_blue, p.color_chrome_red,
+        p.grain_effect, p.grain_effect_rough, p.highlight_tone, p.shadow_tone, p.tone,
+        p.color, p.sharpness, p.clarity, p.noise_reduction, p.high_iso_noise_reduction,
+        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
+        p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
+        p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
+      FROM photos p
       INNER JOIN photo_recipes pr ON p.id = pr.photo_id
       WHERE pr.recipe_id = ? AND p.deleted = 0
       ORDER BY p.created_at DESC
@@ -999,6 +1026,11 @@ export class PhotoDatabase {
       pageSize: safePageSize,
     });
     
+    // 打印每行的 tags 字段
+    rows.slice(0, 3).forEach((row, i) => {
+      console.log(`[DB] Row ${i}: id=${row.id}, tags=${JSON.stringify(row.tags)}, tagsType=${typeof row.tags}`);
+    });
+    
     const total = this.stmts.countPhotos.get(includeDeleted ? 1 : 0)?.total ?? 0;
 
     return {
@@ -1284,7 +1316,20 @@ export class PhotoDatabase {
   }
 
   async getPhotoById(id) {
-    return this.db.prepare('SELECT * FROM photos WHERE id = ? LIMIT 1').get(Number(id)) ?? null;
+    const row = this.db.prepare(`
+      SELECT p.id, p.path, p.hash, p.folder_id, p.size, p.width, p.height, p.created_at, p.updated_at, p.thumbnail_status, p.deleted,
+        p.film_mode, p.dynamic_range, p.color_chrome, p.color_chrome_blue, p.color_chrome_red,
+        p.grain_effect, p.grain_effect_rough, p.highlight_tone, p.shadow_tone, p.tone,
+        p.color, p.sharpness, p.clarity, p.noise_reduction, p.high_iso_noise_reduction,
+        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
+        p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
+        p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
+      FROM photos p
+      WHERE p.id = ? LIMIT 1
+    `).get(Number(id)) ?? null;
+    return row;
   }
 
   async getAllTags() {

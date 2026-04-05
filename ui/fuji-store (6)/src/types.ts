@@ -3,8 +3,6 @@ export interface Photo {
   fileName: string;
   filePath: string;
   thumbnailUrl: string;
-  previewUrl: string;
-  hash?: string;
   cameraModel?: string;
   lensModel?: string;
   dateTime?: string;
@@ -35,35 +33,6 @@ export interface Photo {
   ownerId: string;
   size?: string;
   location?: string;
-  // 富士相机参数
-  colorChrome?: string;
-  colorChromeBlue?: string;
-  colorChromeRed?: string;
-  grainEffectRough?: string;
-  tone?: string;
-  highISONoiseReduction?: string;
-  aperture?: number;
-  shutterSpeed?: string;
-  exposureCompensation?: number;
-  exposureMode?: string;
-  meteringMode?: string;
-  whiteBalanceMode?: string;
-  whiteBalanceTemperature?: number;
-  whiteBalanceTint?: number;
-  focusMode?: string;
-  focusArea?: string;
-  afPoint?: string;
-  flashFired?: number;
-  flashMode?: string;
-  lensMake?: string;
-  focalLength35mm?: number;
-}
-
-export interface User {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL: string;
 }
 
 export interface Recipe {
@@ -72,7 +41,6 @@ export interface Recipe {
   description?: string;
   filmMode?: string;
   whiteBalance?: string;
-  whiteBalanceShift?: string;
   dynamicRange?: string;
   sharpness?: string;
   saturation?: string;
@@ -85,10 +53,9 @@ export interface Recipe {
   colorChromeEffect?: string;
   colorChromeEffectBlue?: string;
   color?: string;
+  whiteBalanceShift?: string;
   isFavorite: boolean;
   ownerId: string;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 export interface Tag {
@@ -105,7 +72,13 @@ export interface Folder {
   type: 'physical' | 'logical';
   includeSubfolders: boolean;
   photoCount: number;
-  sortOrder?: number;
   lastSynced?: string;
   parentId?: string;
+}
+
+export interface User {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
 }

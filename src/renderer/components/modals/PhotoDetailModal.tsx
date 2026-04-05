@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Share2, Trash2, Star, Sparkles, HardDrive, ExternalLink } from 'lucide-react';
+import { X, Heart, Share2, Trash2, Star, Sparkles, HardDrive, ExternalLink, Navigation, FlaskConical } from 'lucide-react';
 import { Photo, Recipe, Tag, Folder } from '../../types';
-import { FILM_SHORT_CODES } from '../../constants/filmModes';
 import { ConfirmModal } from './ConfirmModal';
 import { CustomSelect } from '../common/CustomSelect';
 import { CompactExif } from '../common/CompactExif';
 import { FilmTag } from '../common/FilmTag';
+import { FilmSettingCard } from '../common/FilmSettingCard';
 import { tagService } from '../../services/tagService';
+import { cn } from '../../lib/utils';
 
 interface PhotoDetailModalProps {
   photo: Photo;
@@ -63,6 +64,19 @@ export function PhotoDetailModal({
   const folder = folders.find(f => f.id === photo.folderId);
   const currentRecipe = recipes.find(r => r.id === selectedRecipeId);
 
+  const suggestions = allTags
+    .filter(t => t.name.toLowerCase().includes(newTag.toLowerCase()))
+    .filter(t => !photoTags.some(pt => pt.name === t.name))
+    .slice(0, 5);
+
+  const wbShift = photo.whiteBalanceShift?.split(',').map(s => s.trim()) || [];
+  const wbRed = wbShift[0] || '0';
+  const wbBlue = wbShift[1] || '0';
+
+  const grainParts = photo.grainEffect?.split(',').map(s => s.trim()) || [];
+  const grainRoughness = grainParts[0] || 'Off';
+  const grainSize = grainParts[1] || 'Off';
+
   const handleToggleFavorite = async () => {
     const newVal = !isFavorite;
     setIsFavorite(newVal);
@@ -106,6 +120,9 @@ export function PhotoDetailModal({
       await tagService.addTagToPhoto(photo.id, tag.id);
       setPhotoTags([...photoTags, tag]);
       
+      const newTags = [...(photo.tags || []), tag.name];
+      onUpdatePhoto(photo.id, { tags: newTags });
+      
       if (!allTags.some(t => t.name === cleanTag)) {
         onAddTag(tag);
       }
@@ -115,6 +132,9 @@ export function PhotoDetailModal({
   const handleRemoveTag = async (tagToRemove: Tag) => {
     await tagService.removeTagFromPhoto(photo.id, tagToRemove.id);
     setPhotoTags(photoTags.filter(t => t.id !== tagToRemove.id));
+    
+    const newTags = (photo.tags || []).filter(t => t !== tagToRemove.name);
+    onUpdatePhoto(photo.id, { tags: newTags });
   };
 
   const handleRecipeChange = (recipeId: string) => {
@@ -143,7 +163,6 @@ export function PhotoDetailModal({
           className="glass w-full max-w-6xl h-full max-h-[90vh] rounded-[2.5rem] overflow-hidden flex flex-col lg:flex-row shadow-2xl"
           onClick={e => e.stopPropagation()}
         >
-          {/* Image Preview */}
           <div className="flex-1 bg-black/20 flex items-center justify-center relative group">
             <img src={photo.previewUrl} className="max-w-full max-h-full object-contain" alt={photo.fileName} />
             {photo.fileName.toLowerCase().endsWith('.raf') && (
@@ -159,7 +178,6 @@ export function PhotoDetailModal({
             </button>
           </div>
 
-          {/* Info Panel */}
           <div className="w-full lg:w-[28rem] flex flex-col bg-[var(--bg-primary)]/50 backdrop-blur-2xl border-l border-[var(--border-color)]">
             <div className="p-6 border-b border-[var(--border-color)] flex items-center justify-between gap-4">
               <div className="min-w-0">
@@ -192,7 +210,6 @@ export function PhotoDetailModal({
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              {/* Quick Actions */}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-1 bg-slate-500/5 p-1.5 rounded-xl border border-[var(--border-color)]">
                   {[1, 2, 3, 4, 5].map(r => (
@@ -211,7 +228,6 @@ export function PhotoDetailModal({
                 </div>
               </div>
 
-              {/* Film Recipe Section */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Associated Recipe</h3>
@@ -230,7 +246,7 @@ export function PhotoDetailModal({
                   {currentRecipe && (
                     <div className="p-4 bg-slate-500/5 rounded-2xl border border-[var(--border-color)] flex items-center gap-4">
                       <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
-                        <Sparkles className="w-5 h-5" />
+                        <FlaskConical className="w-5 h-5" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-black truncate">{currentRecipe.name}</p>
@@ -241,7 +257,6 @@ export function PhotoDetailModal({
                 </div>
               </div>
 
-              {/* AI Recognition Button */}
               <button 
                 onClick={() => onRecognize(photo)}
                 className="w-full py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -250,9 +265,7 @@ export function PhotoDetailModal({
                 AI Smart Recognition
               </button>
 
-              {/* Parameters Section */}
               <div className="space-y-8">
-                {/* EXIF Metadata */}
                 <div className="space-y-4">
                   <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">EXIF Metadata</h3>
                   <div className="grid grid-cols-3 gap-2">
@@ -265,31 +278,39 @@ export function PhotoDetailModal({
                   </div>
                 </div>
 
-                {/* Film Settings */}
                 <div className="space-y-4">
-                  <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Film Settings</h3>
-                  <div className="grid grid-cols-3 gap-2">
-                    <FilmTag label="Mode" value={photo.filmMode} primary />
-                    <FilmTag label="WB" value={photo.whiteBalance} />
-                    <FilmTag label="DR" value={photo.dynamicRange} />
-                    <FilmTag label="Sharp" value={photo.sharpness} />
-                    <FilmTag label="Color" value={photo.saturation} />
-                    <FilmTag label="Cont." value={photo.contrast} />
-                    <FilmTag label="Clar." value={photo.clarity} />
-                    <FilmTag label="Shad." value={photo.shadowTone} />
-                    <FilmTag label="High." value={photo.highlightTone} />
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Film Settings</h3>
+                    <div className="px-3 py-1 bg-blue-500/10 text-blue-500 rounded-full text-[8px] font-black uppercase tracking-widest border border-blue-500/20">
+                      {photo.filmMode || 'Provia'}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FilmSettingCard label="White Balance" value={photo.whiteBalance} />
+                    <FilmSettingCard label="Dynamic Range" value={photo.dynamicRange} />
+                    <FilmSettingCard label="Highlight" value={photo.highlightTone} />
+                    <FilmSettingCard label="Shadow" value={photo.shadowTone} />
+                    <FilmSettingCard label="Color" value={photo.saturation} />
+                    <FilmSettingCard label="Sharpness" value={photo.sharpness} />
+                    <FilmSettingCard label="Noise Reduction" value={photo.noiseReduction} />
+                    <FilmSettingCard label="Clarity" value={photo.clarity} />
+                    <FilmSettingCard label="Grain Roughness" value={grainRoughness} />
+                    <FilmSettingCard label="Grain Size" value={grainSize} />
+                    <FilmSettingCard label="Color Chrome" value={photo.colorChromeEffect} />
+                    <FilmSettingCard label="FX Blue" value={photo.colorChromeEffectBlue} />
+                    <FilmSettingCard label="WB Red" value={wbRed} />
+                    <FilmSettingCard label="WB Blue" value={wbBlue} />
                   </div>
                 </div>
               </div>
 
-              {/* Tags Section */}
               <div className="space-y-4 pt-6 border-t border-[var(--border-color)]">
                 <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Tags</h3>
                 <div className="flex flex-wrap gap-1.5">
                   {photoTags.map(tag => (
                     <span 
                       key={tag.id} 
-                      className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 text-blue-500 rounded-lg text-[9px] font-black uppercase tracking-widest border border-blue-500/20"
+                      className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 text-blue-500 rounded-lg text-[9px] font-black uppercase tracking-widest border border-blue-500/20 group/tag"
                       style={{ borderColor: tag.color ? `${tag.color}33` : undefined, color: tag.color || undefined }}
                     >
                       {tag.name}
@@ -298,21 +319,51 @@ export function PhotoDetailModal({
                       </button>
                     </span>
                   ))}
-                  <input 
-                    type="text"
-                    placeholder="+"
-                    className="w-12 bg-slate-500/5 border border-[var(--border-color)] rounded-lg px-2 py-1 text-[9px] font-bold focus:outline-none focus:w-24 transition-all"
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    onKeyDown={(e) => {
-                      console.log('[PhotoDetailModal] Key pressed:', e.key, 'value:', newTag);
-                      if (e.key === 'Enter') {
-                        console.log('[PhotoDetailModal] Enter pressed, calling handleAddTag');
-                        handleAddTag(newTag);
-                      }
-                    }}
-                  />
+                  <div className="relative">
+                    <input 
+                      type="text"
+                      placeholder="+"
+                      className="w-12 bg-slate-500/5 border border-[var(--border-color)] rounded-lg px-2 py-1 text-[9px] font-bold focus:outline-none focus:w-24 transition-all"
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        console.log('[PhotoDetailModal] Key pressed:', e.key, 'value:', newTag);
+                        if (e.key === 'Enter') {
+                          console.log('[PhotoDetailModal] Enter pressed, calling handleAddTag');
+                          handleAddTag(newTag);
+                        }
+                      }}
+                    />
+                    {newTag && suggestions.length > 0 && (
+                      <div className="absolute bottom-full mb-2 left-0 w-48 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-xl shadow-2xl overflow-hidden z-10">
+                        {suggestions.map(tag => (
+                          <button
+                            key={tag.id}
+                            onClick={() => handleAddTag(tag.name)}
+                            className="w-full px-4 py-2 text-left text-[10px] font-bold hover:bg-blue-500/10 hover:text-blue-500 transition-colors flex items-center gap-2"
+                          >
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                            {tag.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
+                {!newTag && allTags.length > 0 && allTags.some(t => !photoTags.some(pt => pt.name === t.name)) && (
+                  <div className="flex flex-wrap gap-1.5 pt-2">
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest w-full mb-1">Available Tags</span>
+                    {allTags.filter(t => !photoTags.some(pt => pt.name === t.name)).slice(0, 10).map(tag => (
+                      <button
+                        key={tag.id}
+                        onClick={() => handleAddTag(tag.name)}
+                        className="px-2 py-1 bg-slate-500/5 hover:bg-slate-500/10 text-slate-400 hover:text-blue-500 rounded-lg text-[8px] font-black uppercase tracking-widest border border-transparent hover:border-blue-500/20 transition-all"
+                      >
+                        {tag.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -322,7 +373,7 @@ export function PhotoDetailModal({
                   onClick={() => console.log('Locating file:', photo.filePath)}
                   className="flex-1 py-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-3 border border-[var(--border-color)]"
                 >
-                  <HardDrive className="w-5 h-5" />
+                  <Navigation className="w-5 h-5" />
                   Locate File
                 </button>
                 <button 

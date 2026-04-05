@@ -57,6 +57,7 @@ import { PhotoDetailModal } from './components/modals/PhotoDetailModal';
 import { ImportModal } from './components/modals/ImportModal';
 import { SyncFolderModal } from './components/modals/SyncFolderModal';
 import { FolderInfoModal } from './components/modals/FolderInfoModal';
+import { RecipeExportModal } from './components/modals/RecipeExportModal';
 
 // Views
 import { StatsView } from './components/views/StatsView';
@@ -64,6 +65,7 @@ import { TagsView } from './components/views/TagsView';
 import { SettingsView } from './components/views/SettingsView';
 import { RecipeView } from './components/views/RecipeView';
 import { TimelineView } from './components/views/TimelineView';
+import { TemplatesView } from './components/views/TemplatesView';
 
 // Mock User Type
 interface User {
@@ -204,6 +206,10 @@ export default function App() {
   // Filtered photos
   const activeFolder = folders.find((f) => f.id === activeFolderId) || null;
   const filteredPhotos = useMemo(() => {
+    console.log('[App] Filtering photos, selectedTags:', selectedTags);
+    photos.slice(0, 3).forEach(p => {
+      console.log('[App] Photo:', p.fileName, 'tags:', JSON.stringify(p.tags), 'type:', typeof p.tags, 'isArray:', Array.isArray(p.tags));
+    });
     return photos.filter(p => {
       const matchesSearch = (p.fileName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
                            p.cameraModel?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -389,8 +395,8 @@ export default function App() {
     setTags(prev => [...prev, tag]);
   };
 
-  const handleAddRecipe = (recipe: Recipe) => {
-    setRecipes(prev => [...prev, recipe]);
+  const handleRecipesChange = (newRecipes: Recipe[]) => {
+    setRecipes(newRecipes);
   };
 
   const handleUpdateFolder = (id: string, updates: Partial<Folder>) => {
@@ -915,14 +921,19 @@ export default function App() {
               {activeView === 'stats' ? (
                 <StatsView key="stats" photos={photos} theme={theme} />
               ) : activeView === 'templates' ? (
-                <div key="templates" className="flex flex-col items-center justify-center py-32 text-slate-400 space-y-6">
-                  <div className="w-20 h-20 bg-slate-500/5 rounded-full flex items-center justify-center">
-                    <Palette className="w-10 h-10 opacity-20" />
-                  </div>
-                  <p className="font-medium">Templates feature coming soon</p>
-                </div>
+                <TemplatesView 
+                  key="templates" 
+                  theme={theme} 
+                  onTryTemplate={(templateId) => {
+                    if (photos.length > 0) {
+                      setExportPhoto(photos[0]);
+                      setInitialExportTemplate(templateId);
+                      setIsExportModalOpen(true);
+                    }
+                  }} 
+                />
               ) : activeView === 'recipes' ? (
-                <RecipeView key="recipes" recipes={recipes} photos={photos} user={user} theme={theme} onAddRecipe={handleAddRecipe} />
+                <RecipeView key="recipes" recipes={recipes} photos={photos} user={user} theme={theme} onRecipesChange={handleRecipesChange} />
               ) : activeView === 'timeline' ? (
                 timelineLoading ? (
                   <div className="py-20 text-center text-xs font-black uppercase tracking-widest text-slate-400">
@@ -1092,110 +1103,12 @@ export default function App() {
           />
         )}
         {isExportModalOpen && exportPhoto && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="glass w-full max-w-4xl rounded-[2.5rem] overflow-hidden shadow-2xl"
-            >
-              <div className="p-8 border-b border-[var(--border-color)] flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-black tracking-tight">Export Photo</h2>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Save photo to your device</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setIsExportModalOpen(false)}
-                  className="p-2 hover:bg-slate-500/10 rounded-2xl transition-all"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              <div className="p-10 space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <motion.div 
-                    whileHover={{ scale: 1.02 }}
-                    className="glass-card rounded-3xl p-6 border-2 border-dashed border-slate-500/20 hover:border-blue-500/50 transition-all cursor-pointer"
-                  >
-                    <div className="flex flex-col items-center justify-center space-y-4">
-                      <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
-                      <h3 className="font-bold text-lg text-center">Original</h3>
-                      <p className="text-sm text-slate-400 text-center">Export as original file</p>
-                    </div>
-                  </motion.div>
-                  <motion.div 
-                    whileHover={{ scale: 1.02 }}
-                    className="glass-card rounded-3xl p-6 border-2 border-dashed border-slate-500/20 hover:border-blue-500/50 transition-all cursor-pointer"
-                  >
-                    <div className="flex flex-col items-center justify-center space-y-4">
-                      <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                        </svg>
-                      </div>
-                      <h3 className="font-bold text-lg text-center">JPEG</h3>
-                      <p className="text-sm text-slate-400 text-center">Export as JPEG format</p>
-                    </div>
-                  </motion.div>
-                  <motion.div 
-                    whileHover={{ scale: 1.02 }}
-                    className="glass-card rounded-3xl p-6 border-2 border-dashed border-slate-500/20 hover:border-blue-500/50 transition-all cursor-pointer"
-                  >
-                    <div className="flex flex-col items-center justify-center space-y-4">
-                      <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                        </svg>
-                      </div>
-                      <h3 className="font-bold text-lg text-center">PNG</h3>
-                      <p className="text-sm text-slate-400 text-center">Export as PNG format</p>
-                    </div>
-                  </motion.div>
-                </div>
-                <div className="space-y-4">
-                  <h3 className="font-bold text-lg">Export Options</h3>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" className="w-5 h-5 rounded-xl border-2 border-slate-500/30 bg-slate-500/5 checked:bg-blue-500 checked:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
-                      <span className="text-sm font-medium">Include EXIF metadata</span>
-                    </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" className="w-5 h-5 rounded-xl border-2 border-slate-500/30 bg-slate-500/5 checked:bg-blue-500 checked:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
-                      <span className="text-sm font-medium">Include recipe information</span>
-                    </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" className="w-5 h-5 rounded-xl border-2 border-slate-500/30 bg-slate-500/5 checked:bg-blue-500 checked:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
-                      <span className="text-sm font-medium">Resize image</span>
-                    </label>
-                  </div>
-                </div>
-                <div className="flex gap-4">
-                  <button 
-                    onClick={() => setIsExportModalOpen(false)}
-                    className="flex-1 py-4 border border-[var(--border-color)] text-slate-300 rounded-2xl text-sm font-bold hover:bg-slate-500/10 transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    className="flex-1 py-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-2xl text-sm font-bold shadow-lg shadow-amber-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  >
-                    Export Photo
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
+          <RecipeExportModal 
+            photo={exportPhoto}
+            onClose={() => setIsExportModalOpen(false)}
+            theme={theme}
+            initialTemplate={initialExportTemplate}
+          />
         )}
         {showDeleteTagConfirm.show && (
           <ConfirmModal

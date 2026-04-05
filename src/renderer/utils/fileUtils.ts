@@ -46,6 +46,7 @@ export function isPhotoInFolder(photo: Photo, folder?: Folder | null): boolean {
  * Converts a database photo object to a Photo type
  */
 export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
+  console.log('[convertDbPhotoToPhoto] raw dbPhoto.tags:', dbPhoto?.tags, 'type:', typeof dbPhoto?.tags);
   if (!dbPhoto || !dbPhoto.path) {
     return {
       id: 'invalid',
@@ -60,7 +61,7 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
       isFavorite: false,
       isHidden: false,
       rating: 0,
-      tags: [],
+      tags: dbPhoto.tags || [],
       ownerId: 'local'
     };
   }
@@ -113,7 +114,7 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     isFavorite: false,
     isHidden: false,
     rating: 0,
-    tags: [],
+    tags: dbPhoto.tags ? dbPhoto.tags.split(',').filter((t: string) => t.trim()) : [],
     ownerId: 'local',
     // 富士相机参数
     dynamicRange: dbPhoto.dynamic_range || '',

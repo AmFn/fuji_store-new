@@ -15,6 +15,77 @@ interface TagsViewProps {
   onTagClick: (tagName: string) => void;
 }
 
+function TagCard({ tag, photos, index, onClick, onDelete }: { tag: Tag, photos: Photo[], index: number, onClick: () => void, onDelete: (e: React.MouseEvent) => void }) {
+  const [isHovered, setIsHovered] = useState(false);
+  console.log('[TagCard] tag:', tag.name, 'total photos:', photos.length);
+  photos.slice(0, 3).forEach(p => {
+    console.log('[TagCard] Photo:', p.fileName, 'tags:', JSON.stringify(p.tags), 'includes tag?', p.tags?.includes(tag.name));
+  });
+  const tagPhotos = photos.filter(p => p.tags?.includes(tag.name));
+  console.log('[TagCard] tagPhotos for', tag.name, ':', tagPhotos.length);
+  const previewPhotos = tagPhotos.slice(0, 3);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay: index * 0.1 }}
+      whileHover={{ y: -10 }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={onClick}
+      className="group cursor-pointer relative"
+    >
+      <button 
+        onClick={onDelete}
+        className="absolute top-4 right-4 z-20 p-2 bg-red-500 text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600 shadow-lg"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+
+      <div className="relative h-64 mb-6">
+        {previewPhotos.length > 0 ? (
+          previewPhotos.map((photo, i) => (
+            <motion.div
+              key={photo.id}
+              className="absolute inset-0 rounded-3xl overflow-hidden border-4 border-white dark:border-slate-800 shadow-xl"
+              animate={{ 
+                zIndex: 3 - i,
+                rotate: i === 0 ? 0 : i === 1 ? (isHovered ? 12 : 6) : (isHovered ? -12 : -6),
+                x: i === 0 ? 0 : i === 1 ? (isHovered ? 30 : 15) : (isHovered ? -30 : -15),
+                y: i === 0 ? 0 : i === 1 ? (isHovered ? 20 : 10) : (isHovered ? 10 : 5),
+                scale: 1 - (i * 0.05)
+              }}
+              transition={{ type: "spring", stiffness: 300, damping: 20 }}
+            >
+              <img src={photo.thumbnailUrl} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
+              <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors" />
+            </motion.div>
+          ))
+        ) : (
+          <div className="absolute inset-0 rounded-3xl bg-slate-500/5 border-4 border-dashed border-slate-500/20 flex items-center justify-center">
+            <Tags className="w-12 h-12 text-slate-500/20" />
+          </div>
+        )}
+        
+        <div 
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 px-6 py-2 rounded-full shadow-lg text-white font-black text-xs uppercase tracking-widest z-10"
+          style={{ backgroundColor: tag.color || '#3b82f6' }}
+        >
+          {tag.name}
+        </div>
+      </div>
+
+      <div className="text-center space-y-1">
+        <h3 className="font-black text-xl tracking-tight group-hover:text-blue-500 transition-colors">{tag.name}</h3>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+          {tagPhotos.length} photos in collection
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
 export function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: TagsViewProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -70,10 +141,6 @@ export function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: TagsV
     setShowDeleteConfirm({ show: false, tagId: '', tagName: '' });
   };
 
-  const getTagPhotoCount = (tagName: string) => {
-    return photos.filter(p => p.tags?.includes(tagName)).length;
-  };
-
   return (
     <div className="space-y-12">
       <div className="flex items-center justify-between">
@@ -93,74 +160,17 @@ export function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: TagsV
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-10">
-        {tags.map((tag, index) => {
-          const photoCount = getTagPhotoCount(tag.name);
-          const previewPhotos = photos.filter(p => p.tags?.includes(tag.name)).slice(0, 3);
-          return (
-            <motion.div
-              key={tag.id}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: index * 0.1 }}
-              whileHover={{ y: -10 }}
-              onMouseEnter={() => {}}
-              onMouseLeave={() => {}}
-              onClick={() => onTagClick(tag.name)}
-              className="group cursor-pointer relative"
-            >
-              <button 
-                onClick={(e) => handleDeleteTag(tag.id, e)}
-                className="absolute top-4 right-4 z-20 p-2 bg-red-500 text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600 shadow-lg"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+        {tags.map((tag, index) => (
+          <TagCard 
+            key={tag.id} 
+            tag={tag} 
+            photos={photos} 
+            index={index} 
+            onClick={() => onTagClick(tag.name)}
+            onDelete={(e) => handleDeleteTag(tag.id, e)}
+          />
+        ))}
 
-              <div className="relative h-64 mb-6">
-                {/* Stacked Photos Effect */}
-                {previewPhotos.length > 0 ? (
-                  previewPhotos.map((photo, i) => (
-                    <motion.div
-                      key={photo.id}
-                      className="absolute inset-0 rounded-3xl overflow-hidden border-4 border-white dark:border-slate-800 shadow-xl"
-                      animate={{ 
-                        zIndex: 3 - i,
-                        rotate: i === 0 ? 0 : i === 1 ? 6 : -6,
-                        x: i === 0 ? 0 : i === 1 ? 15 : -15,
-                        y: i === 0 ? 0 : i === 1 ? 10 : 5,
-                        scale: 1 - (i * 0.05)
-                      }}
-                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                    >
-                      <img src={photo.thumbnailUrl} className="w-full h-full object-cover" alt="" />
-                      <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors" />
-                    </motion.div>
-                  ))
-                ) : (
-                  <div className="absolute inset-0 rounded-3xl bg-slate-500/5 border-4 border-dashed border-slate-500/20 flex items-center justify-center">
-                    <Tags className="w-12 h-12 text-slate-500/20" />
-                  </div>
-                )}
-                
-                {/* Tag Badge */}
-                <div 
-                  className="absolute bottom-4 left-1/2 -translate-x-1/2 px-6 py-2 rounded-full shadow-lg text-white font-black text-xs uppercase tracking-widest z-10"
-                  style={{ backgroundColor: tag.color || '#3b82f6' }}
-                >
-                  {tag.name}
-                </div>
-              </div>
-
-              <div className="text-center space-y-1">
-                <h3 className="font-black text-xl tracking-tight group-hover:text-blue-500 transition-colors">{tag.name}</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                  {photoCount} photos in collection
-                </p>
-              </div>
-            </motion.div>
-          );
-        })}
-
-        {/* Add New Tag Placeholder */}
         <motion.div
           whileHover={{ y: -10 }}
           className="group cursor-pointer"
@@ -175,7 +185,6 @@ export function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: TagsV
         </motion.div>
       </div>
 
-      {/* Create Tag Modal */}
       <AnimatePresence>
         {isCreating && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl">
@@ -249,7 +258,6 @@ export function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: TagsV
           </div>
         )}
 
-        {/* Delete Tag Confirmation Modal */}
         {showDeleteConfirm.show && (
           <ConfirmModal 
             title="Delete Tag"
