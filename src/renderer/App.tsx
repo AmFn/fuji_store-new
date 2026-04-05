@@ -470,6 +470,9 @@ export default function App() {
   const [cloudSyncEnabled, setCloudSyncEnabled] = useState(false);
   const [timelinePhotos, setTimelinePhotos] = useState<Photo[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [showDirectoryClearConfirm, setShowDirectoryClearConfirm] = useState<boolean>(false);
+  const [showDirectoryDeleteConfirm, setShowDirectoryDeleteConfirm] = useState<boolean>(false);
+  const [currentDirectoryId, setCurrentDirectoryId] = useState<string>('');
 
   useEffect(() => {
     const loadData = async () => {
@@ -837,6 +840,29 @@ export default function App() {
     setShowDeleteTagConfirm({ show: false, tagId: '' });
   };
 
+  const handleDirectoryClearPhotos = (folderId: string) => {
+    setCurrentDirectoryId(folderId);
+    setShowDirectoryClearConfirm(true);
+  };
+
+  const handleDirectoryClearPhotosConfirm = () => {
+    // 清空文件夹照片的逻辑
+    setShowDirectoryClearConfirm(false);
+  };
+
+  const handleDirectoryDeleteFolder = (folderId: string) => {
+    setCurrentDirectoryId(folderId);
+    setShowDirectoryDeleteConfirm(true);
+  };
+
+  const handleDirectoryDeleteFolderConfirm = () => {
+    if (window.electronAPI?.deleteFolder) {
+      void window.electronAPI.deleteFolder(currentDirectoryId);
+    }
+    setFolders(prev => prev.filter(f => f.id !== currentDirectoryId));
+    setShowDirectoryDeleteConfirm(false);
+  };
+
   const handleAddTag = (tag: Tag) => {
     setTags(prev => [...prev, tag]);
   };
@@ -953,6 +979,8 @@ export default function App() {
                 }
                 setFolders(prev => prev.filter(f => f.id !== folderId));
               }}
+              onClearPhotos={handleDirectoryClearPhotos}
+              onDeleteFolderConfirm={handleDirectoryDeleteFolder}
               onOpenFolderPath={async (folderPath) => {
                 if (!folderPath || !window.electronAPI?.openFolderPath) return;
                 const result = await window.electronAPI.openFolderPath(folderPath);
@@ -1462,6 +1490,26 @@ export default function App() {
             variant="danger"
           />
         )}
+        {showDirectoryClearConfirm && (
+          <ConfirmModal 
+            title="清空所有照片"
+            message="确定要清空此文件夹中的所有照片吗？此操作无法撤销。"
+            confirmLabel="清空"
+            onConfirm={handleDirectoryClearPhotosConfirm}
+            onCancel={() => setShowDirectoryClearConfirm(false)}
+            variant="danger"
+          />
+        )}
+        {showDirectoryDeleteConfirm && (
+          <ConfirmModal 
+            title="删除文件夹"
+            message="确定要删除此文件夹吗？此操作无法撤销。"
+            confirmLabel="删除"
+            onConfirm={handleDirectoryDeleteFolderConfirm}
+            onCancel={() => setShowDirectoryDeleteConfirm(false)}
+            variant="danger"
+          />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -1525,7 +1573,7 @@ function CustomDatePicker({
   );
 }
 
-function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSelect, onRename, onAddSubfolder, onAddFiles, onReorder, onUpdatePhoto, onOpenFolderPath, onDeleteFolder }: { 
+function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSelect, onRename, onAddSubfolder, onAddFiles, onReorder, onUpdatePhoto, onOpenFolderPath, onDeleteFolder, onClearPhotos, onDeleteFolderConfirm }: { 
   folders: Folder[], 
   onRefresh: (id: string) => void, 
   photos: Photo[], 
@@ -1537,14 +1585,13 @@ function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSel
   onReorder: (draggedId: string, targetId: string) => void,
   onUpdatePhoto: (id: string, updates: Partial<Photo>) => void,
   onOpenFolderPath: (folderPath: string) => void | Promise<void>,
-  onDeleteFolder: (id: string) => void | Promise<void>
+  onDeleteFolder: (id: string) => void | Promise<void>,
+  onClearPhotos: (id: string) => void,
+  onDeleteFolderConfirm: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['1']));
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, folderId: string } | null>(null);
-  const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
-  const [currentFolderId, setCurrentFolderId] = useState<string>('');
 
   const toggle = (id: string) => {
     const next = new Set(expanded);
@@ -1670,48 +1717,18 @@ function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSel
             <ContextMenuItem icon={<FolderPlus className="w-3.5 h-3.5" />} label="New Subfolder" onClick={() => onAddSubfolder(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
             <div className="h-px bg-[var(--border-color)] my-1.5 mx-2" />
             <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="清空所有照片" onClick={() => { 
-              setCurrentFolderId(contextMenu.folderId);
-              setShowClearConfirm(true);
+              onClearPhotos(contextMenu.folderId);
               setContextMenu(null);
             }} danger onClose={() => setContextMenu(null)} />
             <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="Delete" onClick={() => { 
-              setCurrentFolderId(contextMenu.folderId);
-              setShowDeleteConfirm(true);
+              onDeleteFolderConfirm(contextMenu.folderId);
               setContextMenu(null);
             }} danger onClose={() => setContextMenu(null)} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Confirm Modals */}
-      <AnimatePresence>
-        {showClearConfirm && (
-          <ConfirmModal 
-            title="清空所有照片"
-            message="确定要清空此文件夹中的所有照片吗？此操作无法撤销。"
-            confirmLabel="清空"
-            onConfirm={() => {
-              // 清空文件夹照片的逻辑
-              setShowClearConfirm(false);
-            }}
-            onCancel={() => setShowClearConfirm(false)}
-            variant="danger"
-          />
-        )}
-        {showDeleteConfirm && (
-          <ConfirmModal 
-            title="删除文件夹"
-            message="确定要删除此文件夹吗？此操作无法撤销。"
-            confirmLabel="删除"
-            onConfirm={() => {
-              void onDeleteFolder(currentFolderId);
-              setShowDeleteConfirm(false);
-            }}
-            onCancel={() => setShowDeleteConfirm(false)}
-            variant="danger"
-          />
-        )}
-      </AnimatePresence>
+
     </div>
   );
 }
