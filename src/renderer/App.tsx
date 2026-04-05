@@ -1872,14 +1872,16 @@ const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, o
             <p className="text-sm font-bold truncate text-white">{photo.fileName}</p>
             <p className="text-xs text-slate-300 mt-1">{photo.cameraModel}</p>
           </div>
-          <div className="absolute top-4 left-4 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg border border-white/10 flex items-center gap-2">
-            <span className="text-[10px] font-black text-white uppercase tracking-widest">
-              {FILM_SHORT_CODES[photo.filmMode || ''] || '??'}
-            </span>
-            {photo.fileName.toLowerCase().endsWith('.raf') && (
-              <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" title="RAW File" />
-            )}
-          </div>
+          {photo.filmMode && (
+            <div className="absolute top-4 left-4 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg border border-white/10 flex items-center gap-2">
+              <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                {FILM_SHORT_CODES[photo.filmMode] || photo.filmMode}
+              </span>
+              {photo.fileName.toLowerCase().endsWith('.raf') && (
+                <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" title="RAW File" />
+              )}
+            </div>
+          )}
           <button 
             onClick={handleToggleFavorite}
             className="absolute top-4 right-4 p-2 bg-white/20 backdrop-blur-xl rounded-2xl border border-white/30 hover:bg-white/40 transition-all"
