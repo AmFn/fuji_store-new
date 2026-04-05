@@ -159,7 +159,7 @@ function normalizeFsPath(input: string) {
 }
 
 function isPhotoInFolder(photo: Photo, folder?: Folder | null) {
-  if (!folder) return false;
+  if (!folder) return true;
   if (folder.type === 'physical' && folder.path) {
     const photoPath = normalizeFsPath(photo.filePath || '');
     const folderPath = normalizeFsPath(folder.path || '');
@@ -174,6 +174,25 @@ function isPhotoInFolder(photo: Photo, folder?: Folder | null) {
 }
 
 function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
+  if (!dbPhoto || !dbPhoto.path) {
+    return {
+      id: 'invalid',
+      fileName: 'Invalid Photo',
+      filePath: '',
+      thumbnailUrl: '',
+      previewUrl: '',
+      hash: '',
+      cameraModel: '',
+      dateTime: new Date().toISOString(),
+      filmMode: '',
+      isFavorite: false,
+      isHidden: false,
+      rating: 0,
+      tags: [],
+      ownerId: 'local'
+    };
+  }
+
   const pathParts = dbPhoto.path.split(/[/\\]/);
   const fileName = pathParts[pathParts.length - 1];
 
@@ -191,14 +210,14 @@ function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
   }
 
   return {
-    id: String(dbPhoto.id),
+    id: String(dbPhoto.id || Math.random()),
     fileName: fileName,
     filePath: dbPhoto.path,
     thumbnailUrl,
     previewUrl,
     hash: dbPhoto.hash || '',
     cameraModel: '',
-    dateTime: new Date(dbPhoto.created_at).toISOString(),
+    dateTime: dbPhoto.created_at ? new Date(dbPhoto.created_at).toISOString() : new Date().toISOString(),
     filmMode: '',
     isFavorite: false,
     isHidden: false,
@@ -705,7 +724,10 @@ export default function App() {
             icon={<Images className="w-4 h-4" />} 
             label="All Photos" 
             active={activeView === 'photos'} 
-            onClick={() => setActiveView('photos')} 
+            onClick={() => {
+              setActiveFolderId(null);
+              setActiveView('photos');
+            }} 
             theme={theme}
           />
           <NavItem 
