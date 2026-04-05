@@ -34,6 +34,28 @@ export interface Photo {
   ownerId: string;
   size?: string;
   location?: string;
+  // 富士相机参数
+  colorChrome?: string;
+  colorChromeBlue?: string;
+  colorChromeRed?: string;
+  grainEffectRough?: string;
+  tone?: string;
+  highISONoiseReduction?: string;
+  aperture?: number;
+  shutterSpeed?: string;
+  exposureCompensation?: number;
+  exposureMode?: string;
+  meteringMode?: string;
+  whiteBalanceMode?: string;
+  whiteBalanceTemperature?: number;
+  whiteBalanceTint?: number;
+  focusMode?: string;
+  focusArea?: string;
+  afPoint?: string;
+  flashFired?: number;
+  flashMode?: string;
+  lensMake?: string;
+  focalLength35mm?: number;
 }
 
 export interface Recipe {

@@ -216,14 +216,49 @@ function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): Photo {
     thumbnailUrl,
     previewUrl,
     hash: dbPhoto.hash || '',
-    cameraModel: '',
+    cameraModel: dbPhoto.camera_model || '',
     dateTime: dbPhoto.created_at ? new Date(dbPhoto.created_at).toISOString() : new Date().toISOString(),
-    filmMode: '',
+    filmMode: dbPhoto.film_mode || '',
     isFavorite: false,
     isHidden: false,
     rating: 0,
     tags: [],
-    ownerId: 'local'
+    ownerId: 'local',
+    // 富士相机参数
+    dynamicRange: dbPhoto.dynamic_range || '',
+    colorChrome: dbPhoto.color_chrome || '',
+    colorChromeBlue: dbPhoto.color_chrome_blue || '',
+    colorChromeRed: dbPhoto.color_chrome_red || '',
+    grainEffect: dbPhoto.grain_effect || '',
+    grainEffectRough: dbPhoto.grain_effect_rough || '',
+    highlightTone: dbPhoto.highlight_tone || '',
+    shadowTone: dbPhoto.shadow_tone || '',
+    tone: dbPhoto.tone || '',
+    color: dbPhoto.color || '',
+    sharpness: dbPhoto.sharpness || '',
+    clarity: dbPhoto.clarity || '',
+    noiseReduction: dbPhoto.noise_reduction || '',
+    highISONoiseReduction: dbPhoto.high_iso_noise_reduction || '',
+    iso: dbPhoto.iso || 0,
+    aperture: dbPhoto.aperture || 0,
+    shutterSpeed: dbPhoto.shutter_speed || '',
+    exposureCompensation: dbPhoto.exposure_compensation || 0,
+    exposureMode: dbPhoto.exposure_mode || '',
+    meteringMode: dbPhoto.metering_mode || '',
+    whiteBalance: dbPhoto.white_balance || '',
+    whiteBalanceMode: dbPhoto.white_balance_mode || '',
+    whiteBalanceTemperature: dbPhoto.white_balance_temperature || 0,
+    whiteBalanceTint: dbPhoto.white_balance_tint || 0,
+    focusMode: dbPhoto.focus_mode || '',
+    focusArea: dbPhoto.focus_area || '',
+    afPoint: dbPhoto.af_point || '',
+    flashFired: dbPhoto.flash_fired || 0,
+    flashMode: dbPhoto.flash_mode || '',
+    lensModel: dbPhoto.lens_model || '',
+    lensMake: dbPhoto.lens_make || '',
+    focalLength: dbPhoto.focal_length || 0,
+    focalLength35mm: dbPhoto.focal_length_35mm || 0,
+    location: dbPhoto.location || ''
   };
 }
 
@@ -1889,8 +1924,17 @@ const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, o
             <Heart className={cn("w-4 h-4 transition-all", photo.isFavorite ? "text-red-500 fill-red-500" : "text-white")} />
           </button>
         </div>
-        <div className="p-5 flex items-center justify-between gap-4">
-          <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+        <div className="p-5 flex flex-col items-start gap-3">
+          <div className="w-full flex items-center justify-between gap-4">
+            <h3 className="font-bold text-sm truncate text-slate-600 dark:text-slate-300">{photo.fileName}</h3>
+            <button 
+              onClick={handleDelete}
+              className="p-2 hover:bg-red-500/10 rounded-xl transition-all group/delete"
+            >
+              <Trash2 className="w-4 h-4 text-slate-300 group-hover/delete:text-red-500 transition-all" />
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1.5 flex-1 min-w-0 w-full">
             {photo.tags?.slice(0, 2).map(tag => (
               <span key={tag} className="px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md text-[8px] font-black uppercase tracking-widest border border-blue-500/20">
                 {tag}
@@ -1903,12 +1947,6 @@ const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, o
               <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 truncate">{photo.filmMode || 'Unknown'}</span>
             )}
           </div>
-          <button 
-            onClick={handleDelete}
-            className="p-2 hover:bg-red-500/10 rounded-xl transition-all group/delete"
-          >
-            <Trash2 className="w-4 h-4 text-slate-300 group-hover/delete:text-red-500 transition-all" />
-          </button>
         </div>
       </motion.div>
     </div>

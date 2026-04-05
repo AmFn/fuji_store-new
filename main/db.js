@@ -66,7 +66,43 @@ export class PhotoDatabase {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         thumbnail_status TEXT NOT NULL DEFAULT 'pending',
-        deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1))
+        deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+        film_mode TEXT,
+        dynamic_range TEXT,
+        color_chrome TEXT,
+        color_chrome_blue TEXT,
+        color_chrome_red TEXT,
+        grain_effect TEXT,
+        grain_effect_rough TEXT,
+        highlight_tone TEXT,
+        shadow_tone TEXT,
+        tone TEXT,
+        color TEXT,
+        sharpness TEXT,
+        clarity TEXT,
+        noise_reduction TEXT,
+        high_iso_noise_reduction TEXT,
+        iso INTEGER,
+        aperture REAL,
+        shutter_speed TEXT,
+        exposure_compensation REAL,
+        exposure_mode TEXT,
+        metering_mode TEXT,
+        white_balance TEXT,
+        white_balance_mode TEXT,
+        white_balance_temperature INTEGER,
+        white_balance_tint REAL,
+        focus_mode TEXT,
+        focus_area TEXT,
+        af_point TEXT,
+        flash_fired INTEGER,
+        flash_mode TEXT,
+        lens_model TEXT,
+        lens_make TEXT,
+        focal_length REAL,
+        focal_length_35mm INTEGER,
+        camera_model TEXT,
+        location TEXT
       );
 
       CREATE TABLE IF NOT EXISTS folders (
@@ -90,9 +126,23 @@ export class PhotoDatabase {
 
     this.stmts.upsertPhoto = this.db.prepare(`
       INSERT INTO photos (
-        path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+        path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted,
+        film_mode, dynamic_range, color_chrome, color_chrome_blue, color_chrome_red,
+        grain_effect, grain_effect_rough, highlight_tone, shadow_tone, tone,
+        color, sharpness, clarity, noise_reduction, high_iso_noise_reduction,
+        iso, aperture, shutter_speed, exposure_compensation, exposure_mode,
+        metering_mode, white_balance, white_balance_mode, white_balance_temperature, white_balance_tint,
+        focus_mode, focus_area, af_point, flash_fired, flash_mode,
+        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location
       ) VALUES (
-        @path, @hash, @size, @width, @height, @created_at, @updated_at, @thumbnail_status, @deleted
+        @path, @hash, @size, @width, @height, @created_at, @updated_at, @thumbnail_status, @deleted,
+        @film_mode, @dynamic_range, @color_chrome, @color_chrome_blue, @color_chrome_red,
+        @grain_effect, @grain_effect_rough, @highlight_tone, @shadow_tone, @tone,
+        @color, @sharpness, @clarity, @noise_reduction, @high_iso_noise_reduction,
+        @iso, @aperture, @shutter_speed, @exposure_compensation, @exposure_mode,
+        @metering_mode, @white_balance, @white_balance_mode, @white_balance_temperature, @white_balance_tint,
+        @focus_mode, @focus_area, @af_point, @flash_fired, @flash_mode,
+        @lens_model, @lens_make, @focal_length, @focal_length_35mm, @camera_model, @location
       )
       ON CONFLICT(path) DO UPDATE SET
         hash = excluded.hash,
@@ -102,14 +152,56 @@ export class PhotoDatabase {
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
         thumbnail_status = excluded.thumbnail_status,
-        deleted = excluded.deleted
+        deleted = excluded.deleted,
+        film_mode = excluded.film_mode,
+        dynamic_range = excluded.dynamic_range,
+        color_chrome = excluded.color_chrome,
+        color_chrome_blue = excluded.color_chrome_blue,
+        color_chrome_red = excluded.color_chrome_red,
+        grain_effect = excluded.grain_effect,
+        grain_effect_rough = excluded.grain_effect_rough,
+        highlight_tone = excluded.highlight_tone,
+        shadow_tone = excluded.shadow_tone,
+        tone = excluded.tone,
+        color = excluded.color,
+        sharpness = excluded.sharpness,
+        clarity = excluded.clarity,
+        noise_reduction = excluded.noise_reduction,
+        high_iso_noise_reduction = excluded.high_iso_noise_reduction,
+        iso = excluded.iso,
+        aperture = excluded.aperture,
+        shutter_speed = excluded.shutter_speed,
+        exposure_compensation = excluded.exposure_compensation,
+        exposure_mode = excluded.exposure_mode,
+        metering_mode = excluded.metering_mode,
+        white_balance = excluded.white_balance,
+        white_balance_mode = excluded.white_balance_mode,
+        white_balance_temperature = excluded.white_balance_temperature,
+        white_balance_tint = excluded.white_balance_tint,
+        focus_mode = excluded.focus_mode,
+        focus_area = excluded.focus_area,
+        af_point = excluded.af_point,
+        flash_fired = excluded.flash_fired,
+        flash_mode = excluded.flash_mode,
+        lens_model = excluded.lens_model,
+        lens_make = excluded.lens_make,
+        focal_length = excluded.focal_length,
+        focal_length_35mm = excluded.focal_length_35mm,
+        camera_model = excluded.camera_model,
+        location = excluded.location
     `);
 
     this.stmts.getPhotoByPath = this.db.prepare(`
-      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted,
+        film_mode, dynamic_range, color_chrome, color_chrome_blue, color_chrome_red,
+        grain_effect, grain_effect_rough, highlight_tone, shadow_tone, tone,
+        color, sharpness, clarity, noise_reduction, high_iso_noise_reduction,
+        iso, aperture, shutter_speed, exposure_compensation, exposure_mode,
+        metering_mode, white_balance, white_balance_mode, white_balance_temperature, white_balance_tint,
+        focus_mode, focus_area, af_point, flash_fired, flash_mode,
+        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location
       FROM photos
       WHERE path = ?
-      LIMIT 1
     `);
 
     this.stmts.getPhotoByPaths = this.db.prepare(`
@@ -119,7 +211,14 @@ export class PhotoDatabase {
     `);
 
     this.stmts.getPhotosSql = `
-      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted
+      SELECT id, path, hash, size, width, height, created_at, updated_at, thumbnail_status, deleted,
+        film_mode, dynamic_range, color_chrome, color_chrome_blue, color_chrome_red,
+        grain_effect, grain_effect_rough, highlight_tone, shadow_tone, tone,
+        color, sharpness, clarity, noise_reduction, high_iso_noise_reduction,
+        iso, aperture, shutter_speed, exposure_compensation, exposure_mode,
+        metering_mode, white_balance, white_balance_mode, white_balance_temperature, white_balance_tint,
+        focus_mode, focus_area, af_point, flash_fired, flash_mode,
+        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location
       FROM photos
       WHERE deleted = @deleted
       ORDER BY __ORDER_FIELD__ __ORDER_DIRECTION__
@@ -154,7 +253,43 @@ export class PhotoDatabase {
         created_at = COALESCE(@created_at, created_at),
         updated_at = COALESCE(@updated_at, updated_at),
         thumbnail_status = COALESCE(@thumbnail_status, thumbnail_status),
-        deleted = COALESCE(@deleted, deleted)
+        deleted = COALESCE(@deleted, deleted),
+        film_mode = COALESCE(@film_mode, film_mode),
+        dynamic_range = COALESCE(@dynamic_range, dynamic_range),
+        color_chrome = COALESCE(@color_chrome, color_chrome),
+        color_chrome_blue = COALESCE(@color_chrome_blue, color_chrome_blue),
+        color_chrome_red = COALESCE(@color_chrome_red, color_chrome_red),
+        grain_effect = COALESCE(@grain_effect, grain_effect),
+        grain_effect_rough = COALESCE(@grain_effect_rough, grain_effect_rough),
+        highlight_tone = COALESCE(@highlight_tone, highlight_tone),
+        shadow_tone = COALESCE(@shadow_tone, shadow_tone),
+        tone = COALESCE(@tone, tone),
+        color = COALESCE(@color, color),
+        sharpness = COALESCE(@sharpness, sharpness),
+        clarity = COALESCE(@clarity, clarity),
+        noise_reduction = COALESCE(@noise_reduction, noise_reduction),
+        high_iso_noise_reduction = COALESCE(@high_iso_noise_reduction, high_iso_noise_reduction),
+        iso = COALESCE(@iso, iso),
+        aperture = COALESCE(@aperture, aperture),
+        shutter_speed = COALESCE(@shutter_speed, shutter_speed),
+        exposure_compensation = COALESCE(@exposure_compensation, exposure_compensation),
+        exposure_mode = COALESCE(@exposure_mode, exposure_mode),
+        metering_mode = COALESCE(@metering_mode, metering_mode),
+        white_balance = COALESCE(@white_balance, white_balance),
+        white_balance_mode = COALESCE(@white_balance_mode, white_balance_mode),
+        white_balance_temperature = COALESCE(@white_balance_temperature, white_balance_temperature),
+        white_balance_tint = COALESCE(@white_balance_tint, white_balance_tint),
+        focus_mode = COALESCE(@focus_mode, focus_mode),
+        focus_area = COALESCE(@focus_area, focus_area),
+        af_point = COALESCE(@af_point, af_point),
+        flash_fired = COALESCE(@flash_fired, flash_fired),
+        flash_mode = COALESCE(@flash_mode, flash_mode),
+        lens_model = COALESCE(@lens_model, lens_model),
+        lens_make = COALESCE(@lens_make, lens_make),
+        focal_length = COALESCE(@focal_length, focal_length),
+        focal_length_35mm = COALESCE(@focal_length_35mm, focal_length_35mm),
+        camera_model = COALESCE(@camera_model, camera_model),
+        location = COALESCE(@location, location)
       WHERE path = @path
     `);
 
