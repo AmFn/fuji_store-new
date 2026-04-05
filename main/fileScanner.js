@@ -305,9 +305,8 @@ export class FileScanner {
             continue;
           }
           // 如果文件被软删除，也视为新文件，不跳过
-          if (existing && existing.deleted === 1) {
-            // 不跳过，将其添加到新文件列表中，以便用户可以重新添加
-          }
+          // 即使文件被软删除，也要将其添加到新文件列表中，以便用户可以重新添加
+
 
           // 构建文件记录
           const record = await this.#buildRecord(normalizedPath);

@@ -2556,15 +2556,19 @@ function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, 
   const [scanning, setScanning] = useState(true);
   const [newFiles, setNewFiles] = useState<any[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
     const run = async () => {
-      if (!folder?.path || folder.type !== 'physical' || !window.electronAPI) {
-        setNewFiles([]);
-        setScanning(false);
+      if (!folder?.path || folder.type !== 'physical' || !window.electronAPI || isScanning) {
+        if (!folder?.path || folder.type !== 'physical' || !window.electronAPI) {
+          setNewFiles([]);
+          setScanning(false);
+        }
         return;
       }
       try {
+        setIsScanning(true);
         // 实际扫描文件夹，获取未添加的文件列表
         const result = await window.electronAPI.scanDirectoryForNewFiles(folder.path);
         const newFiles = result?.newFiles || [];
@@ -2575,10 +2579,12 @@ function SyncFolderModal({ onClose, folderId, folders }: { onClose: () => void, 
         console.error('Scan failed:', err);
         setNewFiles([]);
         setScanning(false);
+      } finally {
+        setIsScanning(false);
       }
     };
     void run();
-  }, [folder?.path, folder?.type]);
+  }, [folder?.path, folder?.type, isScanning]);
 
   const toggleSelect = (id: string) => {
     const next = new Set(selectedFiles);
