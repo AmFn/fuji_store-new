@@ -149,37 +149,7 @@ export default function App() {
     loading: timelineLoading 
   } = useTimeline();
 
-  // 键盘导航支持
-  useEffect(() => {
-    if (!selectedPhoto) return;
-    
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const currentIndex = filteredPhotos.findIndex(p => p.id === selectedPhoto.id);
-      if (currentIndex === -1) return;
-      
-      switch (e.key) {
-        case 'ArrowLeft':
-          e.preventDefault();
-          if (currentIndex > 0) {
-            setSelectedPhoto(filteredPhotos[currentIndex - 1]);
-          }
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          if (currentIndex < filteredPhotos.length - 1) {
-            setSelectedPhoto(filteredPhotos[currentIndex + 1]);
-          }
-          break;
-        case 'Escape':
-          e.preventDefault();
-          setSelectedPhoto(null);
-          break;
-      }
-    };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPhoto, filteredPhotos, setSelectedPhoto]);
 
   // 不再使用模拟数据，依赖usePhotoLibrary钩子从服务层获取数据
 
@@ -280,6 +250,38 @@ export default function App() {
       }
     }
   };
+
+  // 键盘导航支持
+  useEffect(() => {
+    if (!selectedPhoto) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const currentIndex = filteredPhotos.findIndex(p => p.id === selectedPhoto.id);
+      if (currentIndex === -1) return;
+      
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (currentIndex > 0) {
+            setSelectedPhoto(filteredPhotos[currentIndex - 1]);
+          }
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          if (currentIndex < filteredPhotos.length - 1) {
+            setSelectedPhoto(filteredPhotos[currentIndex + 1]);
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setSelectedPhoto(null);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedPhoto, filteredPhotos, setSelectedPhoto]);
 
   const handleFolderAddFiles = (id: string) => {
     setActiveFolderId(id);
