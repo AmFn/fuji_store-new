@@ -255,6 +255,7 @@ export class FileScanner {
       if (onProgress) await onProgress(this.getProgress());
       throw error;
     }
+  }
 
   async scanDirectoryForNewFiles(rootPath, options = {}) {
     if (this.running) {
