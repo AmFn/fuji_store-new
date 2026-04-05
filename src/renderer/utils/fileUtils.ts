@@ -76,7 +76,12 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
   if (dbPhoto.thumbnail_status === 'done' && dbPhoto.hash) {
     if (isElectron && typeof thumbDir === 'string') {
       thumbnailUrl = toFileUrl(`${thumbDir.replace(/\\/g, '/')}/${dbPhoto.hash}.jpg`);
-      previewUrl = toFileUrl(dbPhoto.path);
+      // 对于 RAF 文件，使用缩略图作为预览，因为浏览器无法直接显示 RAF 文件
+      if (fileName.toLowerCase().endsWith('.raf')) {
+        previewUrl = thumbnailUrl;
+      } else {
+        previewUrl = toFileUrl(dbPhoto.path);
+      }
     } else if (isElectron && dbPhoto.path) {
       // 如果没有thumbDir，但在Electron环境中，使用原始图片路径
       previewUrl = toFileUrl(dbPhoto.path);

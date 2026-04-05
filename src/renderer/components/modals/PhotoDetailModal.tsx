@@ -116,24 +116,7 @@ export function PhotoDetailModal({
         >
           {/* Image Preview */}
           <div className="flex-1 bg-black/20 flex items-center justify-center relative group">
-            {photo.fileName.toLowerCase().endsWith('.raf') ? (
-              <div className="flex flex-col items-center justify-center max-w-full max-h-full p-8">
-                <div className="w-32 h-32 bg-orange-500/20 rounded-full flex items-center justify-center mb-6">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 3L16 7L21 8L17 12L21 16L16 17L12 21L8 17L3 16L7 12L3 8L8 7L12 3Z" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M12 8V16" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M8 12H16" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <div className="text-center space-y-2">
-                  <h3 className="text-2xl font-black text-white">{photo.fileName}</h3>
-                  <p className="text-orange-500 font-medium">RAW / RAF File</p>
-                  <p className="text-slate-400 text-sm">RAF files cannot be previewed directly in the browser</p>
-                </div>
-              </div>
-            ) : (
-              <img src={photo.previewUrl} className="max-w-full max-h-full object-contain" alt={photo.fileName} />
-            )}
+            <img src={photo.previewUrl} className="max-w-full max-h-full object-contain" alt={photo.fileName} />
             {photo.fileName.toLowerCase().endsWith('.raf') && (
               <div className="absolute top-8 right-8 px-4 py-2 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg">
                 RAW / RAF
