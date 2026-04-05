@@ -96,6 +96,7 @@ app.whenReady().then(async () => {
   });
   registerLibraryIpc(ipcMain, libraryManager);
 
+  // 监听FileWatcher的事件
   libraryManager.watcher.on('batch:upsert', (payload) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('library:updated', { type: 'watcher:upsert', ...payload });
@@ -103,6 +104,12 @@ app.whenReady().then(async () => {
   libraryManager.watcher.on('batch:unlink', (payload) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('library:updated', { type: 'watcher:unlink', ...payload });
+  });
+  
+  // 监听LibraryManager的事件（用于扫描操作）
+  libraryManager.on('batch:upsert', (payload) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('library:updated', { type: 'scanner:upsert', ...payload });
   });
   libraryManager.thumbnailQueue.on('task:done', (payload) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;

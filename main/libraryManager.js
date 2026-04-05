@@ -1,10 +1,11 @@
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { PhotoDatabase, normalizePath } from './db.js';
 import { FileScanner } from './fileScanner.js';
 import { FileWatcher } from './fileWatcher.js';
 import { ThumbnailQueue } from './thumbnailQueue.js';
 
-export class LibraryManager {
+export class LibraryManager extends EventEmitter {
   static async create({
     dbPath = path.join(process.cwd(), 'database', 'photos.db'),
     thumbnailDir = path.join(process.cwd(), 'cache', 'thumbnails'),
@@ -63,6 +64,8 @@ export class LibraryManager {
             await this.thumbnailQueue.enqueue(row.path, row.hash, { reason: 'scan' });
           }
         }
+        // 触发批量插入事件，通知前端刷新
+        this.emit('batch:upsert', { count: rows.length, paths: rows.map(row => row.path) });
       },
     });
 
