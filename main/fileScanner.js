@@ -4,6 +4,18 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { normalizePath } from './db.js';
 
+// 添加EXIF提取功能
+async function getExifDateTime(filePath) {
+  try {
+    // 这里可以使用exifr或其他EXIF库来提取拍摄时间
+    // 暂时使用简单的实现，实际项目中应该使用专门的EXIF库
+    return null;
+  } catch (error) {
+    console.error('Error extracting EXIF:', error);
+    return null;
+  }
+}
+
 const SUPPORTED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raf']);
 
 function isImageFile(filePath) {
@@ -106,13 +118,20 @@ export class FileScanner {
       }
     }
 
+    // 尝试从EXIF中提取拍摄时间
+    let created_at = Math.floor(stats.birthtimeMs || stats.ctimeMs || stats.mtimeMs);
+    const exifDateTime = await getExifDateTime(filePath);
+    if (exifDateTime) {
+      created_at = Math.floor(new Date(exifDateTime).getTime());
+    }
+
     return {
       path: normalized,
       hash,
       size: stats.size,
       width: 0,
       height: 0,
-      created_at: Math.floor(stats.birthtimeMs || stats.ctimeMs || stats.mtimeMs),
+      created_at,
       updated_at: Math.floor(stats.mtimeMs),
       thumbnail_status: 'pending',
       deleted: 0,
