@@ -1943,8 +1943,8 @@ const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, o
             {photo.tags && photo.tags.length > 2 && (
               <span className="text-[8px] font-black text-slate-400">+{photo.tags.length - 2}</span>
             )}
-            {!photo.tags?.length && (
-              <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 truncate">{photo.filmMode || 'Unknown'}</span>
+            {!photo.tags?.length && photo.filmMode && (
+              <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 truncate">{photo.filmMode}</span>
             )}
           </div>
         </div>
