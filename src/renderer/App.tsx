@@ -809,26 +809,32 @@ export default function App() {
     setPhotos(prev => prev.filter(p => p.id !== id));
   };
 
+  const [showDeleteTagConfirm, setShowDeleteTagConfirm] = useState<{ show: boolean, tagId: string }>({ show: false, tagId: '' });
+
   const handleDeleteTag = (tagId: string) => {
-    if (window.confirm('Are you sure you want to delete this tag? This will remove it from all photos.')) {
-      const tag = tags.find(t => t.id === tagId);
-      if (tag) {
-        if (window.electronAPI?.updatePhoto) {
-          const affected = photos.filter(p => (p.tags || []).includes(tag.name));
-          for (const p of affected) {
-            const nextTags = (p.tags || []).filter(t => t !== tag.name);
-            void window.electronAPI.updatePhoto(p.filePath, { tags: nextTags }).catch((err) => {
-              console.error('updatePhoto tags failed:', err);
-            });
-          }
+    setShowDeleteTagConfirm({ show: true, tagId });
+  };
+
+  const handleDeleteTagConfirm = () => {
+    const tagId = showDeleteTagConfirm.tagId;
+    const tag = tags.find(t => t.id === tagId);
+    if (tag) {
+      if (window.electronAPI?.updatePhoto) {
+        const affected = photos.filter(p => (p.tags || []).includes(tag.name));
+        for (const p of affected) {
+          const nextTags = (p.tags || []).filter(t => t !== tag.name);
+          void window.electronAPI.updatePhoto(p.filePath, { tags: nextTags }).catch((err) => {
+            console.error('updatePhoto tags failed:', err);
+          });
         }
-        setTags(prev => prev.filter(t => t.id !== tagId));
-        setPhotos(prev => prev.map(p => ({
-          ...p,
-          tags: p.tags?.filter(t => t !== tag.name) || []
-        })));
       }
+      setTags(prev => prev.filter(t => t.id !== tagId));
+      setPhotos(prev => prev.map(p => ({
+        ...p,
+        tags: p.tags?.filter(t => t !== tag.name) || []
+      })));
     }
+    setShowDeleteTagConfirm({ show: false, tagId: '' });
   };
 
   const handleAddTag = (tag: Tag) => {
@@ -1446,6 +1452,16 @@ export default function App() {
             initialTemplate={initialExportTemplate}
           />
         )}
+        {showDeleteTagConfirm.show && (
+          <ConfirmModal 
+            title="删除标签"
+            message="确定要删除此标签吗？这将从所有照片中移除该标签。"
+            confirmLabel="删除"
+            onConfirm={handleDeleteTagConfirm}
+            onCancel={() => setShowDeleteTagConfirm({ show: false, tagId: '' })}
+            variant="danger"
+          />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -1526,6 +1542,9 @@ function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSel
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['1']));
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, folderId: string } | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+  const [currentFolderId, setCurrentFolderId] = useState<string>('');
 
   const toggle = (id: string) => {
     const next = new Set(expanded);
@@ -1650,8 +1669,47 @@ function DirectoryTree({ folders, onRefresh, photos, activeFolderId, onFolderSel
             <ContextMenuItem icon={<Plus className="w-3.5 h-3.5" />} label="Add Photos" onClick={() => onAddFiles(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
             <ContextMenuItem icon={<FolderPlus className="w-3.5 h-3.5" />} label="New Subfolder" onClick={() => onAddSubfolder(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
             <div className="h-px bg-[var(--border-color)] my-1.5 mx-2" />
-            <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="Delete" onClick={() => { void onDeleteFolder(contextMenu.folderId); }} danger onClose={() => setContextMenu(null)} />
+            <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="清空所有照片" onClick={() => { 
+              setCurrentFolderId(contextMenu.folderId);
+              setShowClearConfirm(true);
+              setContextMenu(null);
+            }} danger onClose={() => setContextMenu(null)} />
+            <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="Delete" onClick={() => { 
+              setCurrentFolderId(contextMenu.folderId);
+              setShowDeleteConfirm(true);
+              setContextMenu(null);
+            }} danger onClose={() => setContextMenu(null)} />
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirm Modals */}
+      <AnimatePresence>
+        {showClearConfirm && (
+          <ConfirmModal 
+            title="清空所有照片"
+            message="确定要清空此文件夹中的所有照片吗？此操作无法撤销。"
+            confirmLabel="清空"
+            onConfirm={() => {
+              // 清空文件夹照片的逻辑
+              setShowClearConfirm(false);
+            }}
+            onCancel={() => setShowClearConfirm(false)}
+            variant="danger"
+          />
+        )}
+        {showDeleteConfirm && (
+          <ConfirmModal 
+            title="删除文件夹"
+            message="确定要删除此文件夹吗？此操作无法撤销。"
+            confirmLabel="删除"
+            onConfirm={() => {
+              void onDeleteFolder(currentFolderId);
+              setShowDeleteConfirm(false);
+            }}
+            onCancel={() => setShowDeleteConfirm(false)}
+            variant="danger"
+          />
         )}
       </AnimatePresence>
     </div>
@@ -1703,6 +1761,8 @@ function ThumbImage({ photo, className, alt }: { photo: Photo, className?: strin
 }
 
 const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, onDeletePhoto }: { photo: Photo, mode: 'grid' | 'list', onClick: () => void, theme: string, onToggleFavorite: (id: string) => void, onDeletePhoto: (id: string) => void }) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('photoId', photo.id);
   };
@@ -1714,9 +1774,12 @@ const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, o
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm('Are you sure you want to delete this photo?')) {
-      onDeletePhoto(photo.id);
-    }
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    onDeletePhoto(photo.id);
+    setShowDeleteConfirm(false);
   };
 
   if (mode === 'list') {
@@ -1758,6 +1821,20 @@ const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, o
             </button>
           </div>
         </motion.div>
+
+        {/* Delete Confirmation Modal */}
+        <AnimatePresence>
+          {showDeleteConfirm && (
+            <ConfirmModal 
+              title="删除照片"
+              message={`确定要删除 "${photo.fileName}" 吗？此操作无法撤销。`}
+              confirmLabel="删除"
+              onConfirm={handleDeleteConfirm}
+              onCancel={() => setShowDeleteConfirm(false)}
+              variant="danger"
+            />
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -1830,6 +1907,20 @@ const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, o
           )}
         </div>
       </motion.div>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <ConfirmModal 
+            title="删除照片"
+            message={`确定要删除 "${photo.fileName}" 吗？此操作无法撤销。`}
+            confirmLabel="删除"
+            onConfirm={handleDeleteConfirm}
+            onCancel={() => setShowDeleteConfirm(false)}
+            variant="danger"
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 });
@@ -3245,18 +3336,23 @@ function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: {
     setIsCreating(false);
   };
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<{ show: boolean, tagId: string, tagName: string }>({ show: false, tagId: '', tagName: '' });
+
   const handleDeleteTag = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const tagToDelete = tags.find(t => t.id === id);
     if (!tagToDelete) return;
+    setShowDeleteConfirm({ show: true, tagId: id, tagName: tagToDelete.name });
+  };
 
-    if (confirm(`Are you sure you want to delete "${tagToDelete.name}"? This will remove it from all photos.`)) {
-      setTags(prev => prev.filter(t => t.id !== id));
-      setPhotos(prev => prev.map(p => ({
-        ...p,
-        tags: p.tags?.filter(t => t !== tagToDelete.name) || []
-      })));
-    }
+  const handleDeleteTagConfirm = () => {
+    const { tagId, tagName } = showDeleteConfirm;
+    setTags(prev => prev.filter(t => t.id !== tagId));
+    setPhotos(prev => prev.map(p => ({
+      ...p,
+      tags: p.tags?.filter(t => t !== tagName) || []
+    })));
+    setShowDeleteConfirm({ show: false, tagId: '', tagName: '' });
   };
 
   return (
@@ -3376,6 +3472,18 @@ function TagsView({ tags, setTags, photos, setPhotos, onTagClick }: {
               </div>
             </motion.div>
           </div>
+        )}
+
+        {/* Delete Tag Confirmation Modal */}
+        {showDeleteConfirm.show && (
+          <ConfirmModal 
+            title="删除标签"
+            message={`确定要删除 "${showDeleteConfirm.tagName}" 吗？这将从所有照片中移除该标签。`}
+            confirmLabel="删除"
+            onConfirm={handleDeleteTagConfirm}
+            onCancel={() => setShowDeleteConfirm({ show: false, tagId: '', tagName: '' })}
+            variant="danger"
+          />
         )}
       </AnimatePresence>
     </div>
@@ -3860,6 +3968,9 @@ function SettingsView({
   setCloudSyncEnabled: (v: boolean) => void,
   onFoldersChanged: React.Dispatch<React.SetStateAction<Folder[]>>
 }) {
+  const [showRemoveFolderConfirm, setShowRemoveFolderConfirm] = useState<{ show: boolean, folderId: string }>({ show: false, folderId: '' });
+  const [showClearPhotosConfirm, setShowClearPhotosConfirm] = useState<boolean>(false);
+
   const toggleSubfolders = async (id: string) => {
     const target = folders.find((f) => f.id === id);
     if (!target) return;
@@ -3871,12 +3982,27 @@ function SettingsView({
   };
 
   const removeFolder = async (id: string) => {
-    if (confirm('Are you sure you want to remove this folder?')) {
-      if (window.electronAPI?.deleteFolder) {
-        await window.electronAPI.deleteFolder(id);
-      }
-      onFoldersChanged(prev => prev.filter(f => f.id !== id));
+    setShowRemoveFolderConfirm({ show: true, folderId: id });
+  };
+
+  const handleRemoveFolderConfirm = async () => {
+    const folderId = showRemoveFolderConfirm.folderId;
+    if (window.electronAPI?.deleteFolder) {
+      await window.electronAPI.deleteFolder(folderId);
     }
+    onFoldersChanged(prev => prev.filter(f => f.id !== folderId));
+    setShowRemoveFolderConfirm({ show: false, folderId: '' });
+  };
+
+  const handleClearPhotos = () => {
+    setShowClearPhotosConfirm(true);
+  };
+
+  const handleClearPhotosConfirm = () => {
+    if (window.electronAPI?.clearAllPhotos) {
+      window.electronAPI.clearAllPhotos();
+    }
+    setShowClearPhotosConfirm(false);
   };
 
   const clearCache = async () => {
@@ -3919,13 +4045,7 @@ function SettingsView({
               <RefreshCw className="w-4 h-4" />
               Clear All Cache
             </button>
-            <button onClick={() => {
-              if (confirm('Are you sure you want to clear all photos? This action cannot be undone.')) {
-                if (window.electronAPI?.clearAllPhotos) {
-                  window.electronAPI.clearAllPhotos();
-                }
-              }
-            }} className="text-xs font-black text-red-500 hover:text-red-600 uppercase tracking-widest flex items-center gap-2">
+            <button onClick={handleClearPhotos} className="text-xs font-black text-red-500 hover:text-red-600 uppercase tracking-widest flex items-center gap-2">
               <Trash2 className="w-4 h-4" />
               Clear All Photos
             </button>
@@ -4009,6 +4129,30 @@ function SettingsView({
           )}
         </div>
       </section>
+
+      {/* Confirm Modals */}
+      <AnimatePresence>
+        {showRemoveFolderConfirm.show && (
+          <ConfirmModal 
+            title="删除文件夹"
+            message="确定要删除此文件夹吗？此操作无法撤销。"
+            confirmLabel="删除"
+            onConfirm={handleRemoveFolderConfirm}
+            onCancel={() => setShowRemoveFolderConfirm({ show: false, folderId: '' })}
+            variant="danger"
+          />
+        )}
+        {showClearPhotosConfirm && (
+          <ConfirmModal 
+            title="清空所有照片"
+            message="确定要清空所有照片吗？此操作无法撤销。"
+            confirmLabel="清空"
+            onConfirm={handleClearPhotosConfirm}
+            onCancel={() => setShowClearPhotosConfirm(false)}
+            variant="danger"
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
