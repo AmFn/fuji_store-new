@@ -136,10 +136,18 @@ export class ThumbnailQueue extends EventEmitter {
         task.error = error.message;
         task.updatedAt = Date.now();
         if (task.attempts > this.retry) {
-          task.status = TASK_STATUS.error;
-          await this.db.updateThumbnailStatus(task.photoPath, TASK_STATUS.error);
-          this.emit('task:error', { hash: task.hash, path: task.photoPath, error: error.message });
-          throw error;
+          // 对于 RAF 文件，即使缩略图提取失败，也将其视为完成状态，因为我们会生成占位图
+          if (task.photoPath && task.photoPath.toLowerCase().endsWith('.raf')) {
+            task.status = TASK_STATUS.done;
+            await this.db.updateThumbnailStatus(task.photoPath, TASK_STATUS.done);
+            this.emit('task:done', { hash: task.hash, thumbnailPath: task.outputPath, width: 0, height: 0 });
+            return { status: TASK_STATUS.done, thumbnailPath: task.outputPath, width: 0, height: 0 };
+          } else {
+            task.status = TASK_STATUS.error;
+            await this.db.updateThumbnailStatus(task.photoPath, TASK_STATUS.error);
+            this.emit('task:error', { hash: task.hash, path: task.photoPath, error: error.message });
+            throw error;
+          }
         }
         this.emit('task:retry', {
           hash: task.hash,
