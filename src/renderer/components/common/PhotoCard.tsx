@@ -136,7 +136,7 @@ export const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavo
             <Heart className={cn("w-4 h-4 transition-all", photo.isFavorite ? "text-red-500 fill-red-500" : "text-white")} />
           </button>
         </div>
-        <div className="p-4 flex flex-col items-start gap-2">
+        <div className="p-4 flex flex-col items-start gap-2 h-24">
           <div className="w-full flex items-center justify-between gap-4">
             <h3 className="font-bold text-sm truncate text-slate-600 dark:text-slate-300">{photo.fileName}</h3>
             <button 
@@ -146,21 +146,6 @@ export const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavo
               <Trash2 className="w-4 h-4 text-slate-300 group-hover/delete:text-red-500 transition-all" />
             </button>
           </div>
-          {(photo.tags?.length || photo.filmMode) && (
-            <div className="flex flex-wrap gap-1.5 flex-1 min-w-0 w-full">
-              {photo.tags?.slice(0, 2).map(tag => (
-                <span key={tag} className="px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md text-[8px] font-black uppercase tracking-widest border border-blue-500/20">
-                  {tag}
-                </span>
-              ))}
-              {photo.tags && photo.tags.length > 2 && (
-                <span className="text-[8px] font-black text-slate-400">+{photo.tags.length - 2}</span>
-              )}
-              {!photo.tags?.length && photo.filmMode && (
-                <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 truncate">{photo.filmMode}</span>
-              )}
-            </div>
-          )}
         </div>
       </motion.div>
 

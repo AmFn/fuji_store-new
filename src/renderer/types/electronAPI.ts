@@ -17,6 +17,7 @@ declare global {
       clearFolderPhotos: (folderId: string) => Promise<{ success: boolean }>;
       assignFolderByPath: (folderId: string | number, folderPath: string, includeSubfolders?: boolean) => Promise<{ assigned: number }>;
       openFolderPath: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+      showInFolder: (photoPath: string) => Promise<any>;
       
       // 文件夹相关 v2
       'library:get-all-folders-v2': () => Promise<any[]>;
@@ -49,6 +50,7 @@ declare global {
       removeRecipeFromPhoto: (photoId: number, recipeId: number) => Promise<number>;
       setPhotoRecipe: (photoId: number, recipeId: number | null) => Promise<boolean>;
       getPhotosByRecipe: (recipeId: number, page?: number, pageSize?: number) => Promise<{ items: any[]; total: number; page: number; pageSize: number; totalPages: number }>;
+      addRecipeDisplayPhotos: (recipeId: number, filePaths: string[]) => Promise<{ success: boolean; added: number }>;
       
       // 时间线相关
       getTimelineGroups: (page: number, pageSize: number) => Promise<{ items: any[]; total?: number; page?: number; totalPages?: number }>;

@@ -28,6 +28,7 @@ export interface Photo {
   colorChromeEffectBlue?: string;
   isFavorite: boolean;
   isHidden: boolean;
+  isRecipeDisplay: boolean;
   rating: number;
   tags: string[];
   recipeId?: string;
@@ -87,6 +88,7 @@ export interface Recipe {
   color?: string;
   isFavorite: boolean;
   ownerId: string;
+  imageUrls?: string[];
   createdAt?: string;
   updatedAt?: string;
 }

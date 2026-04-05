@@ -30,6 +30,8 @@ function normalizePhotoRecord(photo) {
   const now = Date.now();
   const folderIdRaw = photo.folder_id ?? photo.folderId ?? null;
   const folderId = folderIdRaw === null || folderIdRaw === undefined || folderIdRaw === '' ? null : Number(folderIdRaw);
+  const sourceTypeRaw = photo.source_type ?? photo.sourceType;
+  const sourceType = sourceTypeRaw === 'recipe_display' || photo.is_recipe_display ? 'recipe_display' : 'library';
   return {
     path: normalizePath(photo.path),
     hash: photo.hash ?? '',
@@ -77,7 +79,8 @@ function normalizePhotoRecord(photo) {
     focal_length: photo.focal_length ?? null,
     focal_length_35mm: photo.focal_length_35mm ?? null,
     camera_model: photo.camera_model ?? null,
-    location: photo.location ?? null
+    location: photo.location ?? null,
+    source_type: sourceType,
   };
 }
 
@@ -151,7 +154,8 @@ export class PhotoDatabase {
         focal_length REAL,
         focal_length_35mm INTEGER,
         camera_model TEXT,
-        location TEXT
+        location TEXT,
+        source_type TEXT NOT NULL DEFAULT 'library' CHECK (source_type IN ('library', 'recipe_display'))
       );
 
       CREATE TABLE IF NOT EXISTS folders (
@@ -236,7 +240,7 @@ export class PhotoDatabase {
         iso, aperture, shutter_speed, exposure_compensation, exposure_mode,
         metering_mode, white_balance, white_balance_mode, white_balance_temperature, white_balance_tint,
         focus_mode, focus_area, af_point, flash_fired, flash_mode,
-        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location
+        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location, source_type
       ) VALUES (
         @path, @hash, @folder_id, @size, @width, @height, @created_at, @updated_at, @thumbnail_status, @deleted,
         @film_mode, @dynamic_range, @color_chrome, @color_chrome_blue, @color_chrome_red,
@@ -245,7 +249,7 @@ export class PhotoDatabase {
         @iso, @aperture, @shutter_speed, @exposure_compensation, @exposure_mode,
         @metering_mode, @white_balance, @white_balance_mode, @white_balance_temperature, @white_balance_tint,
         @focus_mode, @focus_area, @af_point, @flash_fired, @flash_mode,
-        @lens_model, @lens_make, @focal_length, @focal_length_35mm, @camera_model, @location
+        @lens_model, @lens_make, @focal_length, @focal_length_35mm, @camera_model, @location, @source_type
       )
       ON CONFLICT(path) DO UPDATE SET
         hash = excluded.hash,
@@ -292,7 +296,8 @@ export class PhotoDatabase {
         focal_length = excluded.focal_length,
         focal_length_35mm = excluded.focal_length_35mm,
         camera_model = excluded.camera_model,
-        location = excluded.location
+        location = excluded.location,
+        source_type = excluded.source_type
     `);
 
     this.stmts.getPhotoByPath = this.db.prepare(`
@@ -303,7 +308,7 @@ export class PhotoDatabase {
         iso, aperture, shutter_speed, exposure_compensation, exposure_mode,
         metering_mode, white_balance, white_balance_mode, white_balance_temperature, white_balance_tint,
         focus_mode, focus_area, af_point, flash_fired, flash_mode,
-        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location
+        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location, source_type
       FROM photos
       WHERE path = ?
     `);
@@ -322,10 +327,10 @@ export class PhotoDatabase {
         p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
         p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
         p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
-        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location, p.source_type,
         (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
       FROM photos p
-      WHERE deleted = @deleted
+      WHERE deleted = @deleted AND p.source_type = 'library'
       ORDER BY __ORDER_FIELD__ __ORDER_DIRECTION__
       LIMIT @limit OFFSET @offset
     `;
@@ -333,7 +338,7 @@ export class PhotoDatabase {
     this.stmts.countPhotos = this.db.prepare(`
       SELECT COUNT(*) AS total
       FROM photos
-      WHERE deleted = ?
+      WHERE deleted = ? AND source_type = 'library'
     `);
 
     this.stmts.markDeleted = this.db.prepare(`
@@ -408,13 +413,13 @@ export class PhotoDatabase {
     this.stmts.getAllActivePaths = this.db.prepare(`
       SELECT path
       FROM photos
-      WHERE deleted = 0
+      WHERE deleted = 0 AND source_type = 'library'
     `);
 
     this.stmts.getRowsMissingOnDisk = this.db.prepare(`
       SELECT id, path
       FROM photos
-      WHERE deleted = 0
+      WHERE deleted = 0 AND source_type = 'library'
     `);
 
     this.stmts.getTimelineGroupPage = this.db.prepare(`
@@ -423,7 +428,7 @@ export class PhotoDatabase {
         MAX(created_at) AS latest_created_at,
         COUNT(*) AS photo_count
       FROM photos
-      WHERE deleted = 0
+      WHERE deleted = 0 AND source_type = 'library'
       GROUP BY day_key
       ORDER BY latest_created_at DESC
       LIMIT ? OFFSET ?
@@ -434,7 +439,7 @@ export class PhotoDatabase {
       FROM (
         SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
         FROM photos
-        WHERE deleted = 0
+        WHERE deleted = 0 AND source_type = 'library'
         GROUP BY day_key
       )
     `);
@@ -447,10 +452,10 @@ export class PhotoDatabase {
         p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
         p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
         p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
-        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location, p.source_type,
         (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
       FROM photos p
-      WHERE p.deleted = 0
+      WHERE p.deleted = 0 AND p.source_type = 'library'
         AND strftime('%Y-%m-%d', p.created_at / 1000, 'unixepoch', 'localtime') = @dayKey
       ORDER BY p.created_at DESC
       LIMIT @limit OFFSET @offset
@@ -459,7 +464,7 @@ export class PhotoDatabase {
     this.stmts.countPhotosByDay = this.db.prepare(`
       SELECT COUNT(*) AS total
       FROM photos
-      WHERE deleted = 0
+      WHERE deleted = 0 AND source_type = 'library'
         AND strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') = ?
     `);
 
@@ -574,7 +579,7 @@ export class PhotoDatabase {
         p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
         p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
         p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
-        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location, p.source_type,
         (SELECT GROUP_CONCAT(t2.name, ',') FROM photo_tags pt2 JOIN tags t2 ON pt2.tag_id = t2.id WHERE pt2.photo_id = p.id) AS tags
       FROM photos p
       INNER JOIN photo_tags pt ON p.id = pt.photo_id
@@ -645,7 +650,7 @@ export class PhotoDatabase {
         p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
         p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
         p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
-        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location, p.source_type,
         (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
       FROM photos p
       INNER JOIN photo_recipes pr ON p.id = pr.photo_id
@@ -675,6 +680,7 @@ export class PhotoDatabase {
       CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(hash);
       CREATE INDEX IF NOT EXISTS idx_photos_updated_at ON photos(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_photos_deleted ON photos(deleted);
+      CREATE INDEX IF NOT EXISTS idx_photos_source_type ON photos(source_type);
       CREATE INDEX IF NOT EXISTS idx_photos_folder_id ON photos(folder_id);
       CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
       CREATE INDEX IF NOT EXISTS idx_tags_owner_id ON tags(owner_id);
@@ -808,6 +814,14 @@ export class PhotoDatabase {
     }
     if (!photoSet.has('folder_id')) {
       this.db.exec('ALTER TABLE photos ADD COLUMN folder_id INTEGER');
+    }
+    if (!photoSet.has('source_type')) {
+      this.db.exec("ALTER TABLE photos ADD COLUMN source_type TEXT NOT NULL DEFAULT 'library'");
+      if (photoSet.has('is_recipe_display')) {
+        this.db.exec("UPDATE photos SET source_type = CASE WHEN COALESCE(is_recipe_display, 0) = 1 THEN 'recipe_display' ELSE 'library' END");
+      } else {
+        this.db.exec("UPDATE photos SET source_type = 'library' WHERE source_type IS NULL OR source_type = ''");
+      }
     }
 
     // 添加富士相机参数相关的列
@@ -1324,7 +1338,7 @@ export class PhotoDatabase {
         p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
         p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
         p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
-        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location,
+        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location, p.source_type,
         (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
       FROM photos p
       WHERE p.id = ? LIMIT 1

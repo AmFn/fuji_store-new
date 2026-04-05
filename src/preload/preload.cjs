@@ -261,4 +261,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeRecipeFromPhoto: (photoId, recipeId) => ipcRenderer.invoke('library:remove-recipe-from-photo', photoId, recipeId),
   setPhotoRecipe: (photoId, recipeId) => ipcRenderer.invoke('library:set-photo-recipe', photoId, recipeId),
   getPhotosByRecipe: (recipeId, page, pageSize) => ipcRenderer.invoke('library:get-photos-by-recipe', recipeId, page, pageSize),
+  addRecipeDisplayPhotos: (recipeId, filePaths) => ipcRenderer.invoke('library:add-recipe-display-photos', { recipeId, filePaths }),
 });

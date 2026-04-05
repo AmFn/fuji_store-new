@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Share2, Trash2, Star, Sparkles, HardDrive, ExternalLink, Navigation, FlaskConical } from 'lucide-react';
+import { X, Heart, Share2, Trash2, HardDrive, ExternalLink, Navigation } from 'lucide-react';
 import { Photo, Recipe, Tag, Folder } from '../../types';
 import { ConfirmModal } from './ConfirmModal';
-import { CustomSelect } from '../common/CustomSelect';
 import { CompactExif } from '../common/CompactExif';
-import { FilmTag } from '../common/FilmTag';
 import { FilmSettingCard } from '../common/FilmSettingCard';
 import { tagService } from '../../services/tagService';
 import { cn } from '../../lib/utils';
@@ -41,11 +39,9 @@ export function PhotoDetailModal({
   const { t } = useLanguage();
   const [isFavorite, setIsFavorite] = useState(photo.isFavorite);
   const [isHidden, setIsHidden] = useState(photo.isHidden);
-  const [rating, setRating] = useState(photo.rating);
   const [photoTags, setPhotoTags] = useState<Tag[]>([]);
   const [newTag, setNewTag] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [selectedRecipeId, setSelectedRecipeId] = useState(photo.recipeId || '');
 
   useEffect(() => {
     const loadTags = async () => {
@@ -64,7 +60,6 @@ export function PhotoDetailModal({
   }, [photo.id]);
 
   const folder = folders.find(f => f.id === photo.folderId);
-  const currentRecipe = recipes.find(r => r.id === selectedRecipeId);
 
   const suggestions = allTags
     .filter(t => t.name.toLowerCase().includes(newTag.toLowerCase()))
@@ -90,11 +85,6 @@ export function PhotoDetailModal({
     setIsHidden(newVal);
     onUpdatePhoto(photo.id, { isHidden: newVal });
     if (newVal) onClose();
-  };
-
-  const handleRating = async (r: number) => {
-    setRating(r);
-    onUpdatePhoto(photo.id, { rating: r });
   };
 
   const handleAddTag = async (tagName: string) => {
@@ -139,11 +129,6 @@ export function PhotoDetailModal({
     onUpdatePhoto(photo.id, { tags: newTags });
   };
 
-  const handleRecipeChange = (recipeId: string) => {
-    setSelectedRecipeId(recipeId);
-    onUpdatePhoto(photo.id, { recipeId });
-  };
-
   const handleDelete = async () => {
     onDeletePhoto(photo.id);
     onClose();
@@ -167,11 +152,20 @@ export function PhotoDetailModal({
         >
           <div className="flex-1 bg-black/20 flex items-center justify-center relative group">
             <img src={photo.previewUrl} className="max-w-full max-h-full object-contain" alt={photo.fileName} />
-            {photo.fileName.toLowerCase().endsWith('.raf') && (
-              <div className="absolute top-8 right-8 px-4 py-2 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg">
-                {t('photoDetail.rawFile')}
-              </div>
-            )}
+            <div className="absolute top-8 right-8 flex flex-col items-end gap-2">
+              <button
+                onClick={handleToggleFavorite}
+                className={isFavorite ? "p-3 bg-red-500/20 hover:bg-red-500/30 backdrop-blur-xl rounded-2xl transition-all border border-red-500/30 text-red-500" : "p-3 bg-white/10 hover:bg-white/20 backdrop-blur-xl rounded-2xl transition-all border border-white/20 text-white"}
+                title="Favorite"
+              >
+                <Heart className={isFavorite ? "w-5 h-5 fill-red-500" : "w-5 h-5"} />
+              </button>
+              {photo.fileName.toLowerCase().endsWith('.raf') && (
+                <div className="px-4 py-2 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg">
+                  {t('photoDetail.rawFile')}
+                </div>
+              )}
+            </div>
             <button 
               onClick={onClose}
               className="absolute top-8 left-8 p-3 bg-white/10 hover:bg-white/20 backdrop-blur-xl rounded-2xl transition-all border border-white/20 text-white"
@@ -212,71 +206,16 @@ export function PhotoDetailModal({
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-1 bg-slate-500/5 p-1.5 rounded-xl border border-[var(--border-color)]">
-                  {[1, 2, 3, 4, 5].map(r => (
-                    <button key={r} onClick={() => handleRating(r)} className="p-1">
-                      <Star className={r <= rating ? "w-4 h-4 text-yellow-500 fill-yellow-500" : "w-4 h-4 text-slate-300 hover:text-yellow-500/50"} />
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={handleToggleFavorite}
-                    className={isFavorite ? "p-2 rounded-lg transition-all border bg-red-500/10 text-red-500 border-red-500/20" : "p-2 rounded-lg transition-all border bg-white/5 text-slate-400 border-transparent hover:text-red-500"}
-                  >
-                    <Heart className={isFavorite ? "w-4 h-4 fill-red-500" : "w-4 h-4"} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{t('photoDetail.associatedRecipe')}</h3>
-                  {currentRecipe && (
-                    <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest bg-blue-500/10 px-2 py-0.5 rounded-full">{t('photoDetail.active')}</span>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  <CustomSelect 
-                    value={selectedRecipeId}
-                    onChange={handleRecipeChange}
-                    placeholder={t('photoDetail.selectRecipe')}
-                    options={recipes.map(r => ({ label: r.name, value: r.id }))}
-                    className="!rounded-xl"
-                  />
-                  {currentRecipe && (
-                    <div className="p-4 bg-slate-500/5 rounded-2xl border border-[var(--border-color)] flex items-center gap-4">
-                      <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
-                        <FlaskConical className="w-5 h-5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black truncate">{currentRecipe.name}</p>
-                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{currentRecipe.filmMode}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button 
-                onClick={() => onRecognize(photo)}
-                className="w-full py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-              >
-                <Sparkles className="w-4 h-4" />
-                {t('photoDetail.aiRecognition')}
-              </button>
-
               <div className="space-y-8">
                 <div className="space-y-4">
                   <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{t('photoDetail.exifMetadata')}</h3>
                   <div className="grid grid-cols-3 gap-2">
                     <CompactExif icon={<HardDrive className="w-3 h-3" />} value={photo.cameraModel} />
                     <CompactExif icon={<ExternalLink className="w-3 h-3" />} value={photo.fNumber} />
-                    <CompactExif icon={<Star className="w-3 h-3" />} value={photo.exposureTime} />
+                    <CompactExif icon={<Navigation className="w-3 h-3" />} value={photo.exposureTime} />
                     <CompactExif icon={<Share2 className="w-3 h-3" />} value={photo.iso?.toString()} />
                     <CompactExif icon={<ExternalLink className="w-3 h-3" />} value={photo.focalLength} />
-                    <CompactExif icon={<Sparkles className="w-3 h-3" />} value={photo.lensModel} />
+                    <CompactExif icon={<HardDrive className="w-3 h-3" />} value={photo.lensModel} />
                   </div>
                 </div>
 
@@ -369,20 +308,20 @@ export function PhotoDetailModal({
               </div>
             </div>
 
-            <div className="p-8 border-t border-[var(--border-color)] flex flex-col gap-4">
+            <div className="p-4 border-t border-[var(--border-color)] flex flex-col gap-3">
               <div className="flex gap-4">
                 <button 
-                  onClick={() => console.log('Locating file:', photo.filePath)}
-                  className="flex-1 py-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-3 border border-[var(--border-color)]"
+                  onClick={() => window.electronAPI?.showInFolder?.(photo.filePath)}
+                  className="flex-1 py-2.5 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border border-[var(--border-color)]"
                 >
-                  <Navigation className="w-5 h-5" />
+                  <Navigation className="w-4 h-4" />
                   {t('photoDetail.locateFile')}
                 </button>
                 <button 
-                  onClick={() => console.log('Opening original:', photo.filePath)}
-                  className="flex-1 py-4 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-3 border border-[var(--border-color)]"
+                  onClick={() => window.electronAPI?.openFolderPath?.(photo.filePath)}
+                  className="flex-1 py-2.5 bg-slate-500/5 hover:bg-slate-500/10 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border border-[var(--border-color)]"
                 >
-                  <ExternalLink className="w-5 h-5" />
+                  <ExternalLink className="w-4 h-4" />
                   {t('photoDetail.openOriginal')}
                 </button>
               </div>

@@ -9,7 +9,7 @@ const fs = require('node:fs');
 
 // 数据库迁移脚本
 const MIGRATIONS = [
-  {    version: 1,    name: 'create_photos_table',    up: (db) => {      db.exec(`        CREATE TABLE IF NOT EXISTS photos (          id INTEGER PRIMARY KEY AUTOINCREMENT,          path TEXT NOT NULL UNIQUE,          hash TEXT NOT NULL,          size INTEGER NOT NULL,          width INTEGER NOT NULL,          height INTEGER NOT NULL,          created_at INTEGER NOT NULL,          shot_at INTEGER,          updated_at INTEGER NOT NULL,          thumbnail_status TEXT NOT NULL DEFAULT 'pending',          is_deleted INTEGER NOT NULL DEFAULT 0,          is_favorite INTEGER NOT NULL DEFAULT 0,          is_hidden INTEGER NOT NULL DEFAULT 0,          rating INTEGER NOT NULL DEFAULT 0,          tags_json TEXT NOT NULL DEFAULT '[]',          metadata_json TEXT DEFAULT '{}'        );      `);    },  },
+  {    version: 1,    name: 'create_photos_table',    up: (db) => {      db.exec(`        CREATE TABLE IF NOT EXISTS photos (          id INTEGER PRIMARY KEY AUTOINCREMENT,          path TEXT NOT NULL UNIQUE,          hash TEXT NOT NULL,          size INTEGER NOT NULL,          width INTEGER NOT NULL,          height INTEGER NOT NULL,          created_at INTEGER NOT NULL,          shot_at INTEGER,          updated_at INTEGER NOT NULL,          thumbnail_status TEXT NOT NULL DEFAULT 'pending',          is_deleted INTEGER NOT NULL DEFAULT 0,          is_favorite INTEGER NOT NULL DEFAULT 0,          is_hidden INTEGER NOT NULL DEFAULT 0,          rating INTEGER NOT NULL DEFAULT 0,          tags_json TEXT NOT NULL DEFAULT '[]',          metadata_json TEXT DEFAULT '{}',          is_recipe_display INTEGER NOT NULL DEFAULT 0        );      `);    },  },
   {
     version: 2,
     name: 'create_indexes',
@@ -64,6 +64,13 @@ const MIGRATIONS = [
     name: 'add_shot_at_column',
     up: (db) => {
       db.exec('ALTER TABLE photos ADD COLUMN shot_at INTEGER');
+    },
+  },
+  {
+    version: 6,
+    name: 'add_recipe_display_column',
+    up: (db) => {
+      db.exec('ALTER TABLE photos ADD COLUMN is_recipe_display INTEGER NOT NULL DEFAULT 0');
     },
   },
 ];
@@ -134,10 +141,10 @@ class PhotoDatabase {
       upsertPhoto: this.db.prepare(`
         INSERT INTO photos (
           path, hash, size, width, height, created_at, shot_at, updated_at,
-          thumbnail_status, is_deleted, is_favorite, is_hidden, rating, tags_json, metadata_json
+          thumbnail_status, is_deleted, is_favorite, is_hidden, rating, tags_json, metadata_json, is_recipe_display
         ) VALUES (
           @path, @hash, @size, @width, @height, @created_at, @shot_at, @updated_at,
-          @thumbnail_status, @is_deleted, @is_favorite, @is_hidden, @rating, @tags_json, @metadata_json
+          @thumbnail_status, @is_deleted, @is_favorite, @is_hidden, @rating, @tags_json, @metadata_json, @is_recipe_display
         )
         ON CONFLICT(path) DO UPDATE SET
           hash = excluded.hash,
@@ -149,6 +156,7 @@ class PhotoDatabase {
           updated_at = excluded.updated_at,
           thumbnail_status = excluded.thumbnail_status,
           is_deleted = excluded.is_deleted,
+          is_recipe_display = excluded.is_recipe_display,
           metadata_json = excluded.metadata_json
       `),
 
@@ -183,21 +191,24 @@ class PhotoDatabase {
       `),
 
       // 统计查询
-      countPhotos: this.db.prepare('SELECT COUNT(*) AS total FROM photos WHERE is_deleted = 0'),
+      countPhotos: this.db.prepare('SELECT COUNT(*) AS total FROM photos WHERE is_deleted = 0 AND is_recipe_display = 0'),
       
       countPhotosByStatus: this.db.prepare(`
         SELECT thumbnail_status, COUNT(*) as count 
         FROM photos 
-        WHERE is_deleted = 0 
+        WHERE is_deleted = 0 AND is_recipe_display = 0
         GROUP BY thumbnail_status
       `),
+      
+      // 统计配方展示照片
+      countRecipeDisplayPhotos: this.db.prepare('SELECT COUNT(*) AS total FROM photos WHERE is_deleted = 0 AND is_recipe_display = 1'),
 
       // 分页查询
       getPhotosPage: this.db.prepare(`
         SELECT id, path, hash, size, width, height, created_at, shot_at, updated_at,
                thumbnail_status, is_favorite, is_hidden, rating, tags_json, metadata_json
         FROM photos
-        WHERE is_deleted = 0
+        WHERE is_deleted = 0 AND is_recipe_display = 0
         ORDER BY shot_at DESC, created_at DESC
         LIMIT ? OFFSET ?
       `),
@@ -293,6 +304,7 @@ class PhotoDatabase {
       rating: input.rating || 0,
       tags_json: typeof input.tags_json === 'string' ? input.tags_json : JSON.stringify(input.tags || []),
       metadata_json: typeof input.metadata_json === 'string' ? input.metadata_json : JSON.stringify(input.metadata || {}),
+      is_recipe_display: input.is_recipe_display ? 1 : 0,
     };
   }
 

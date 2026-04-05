@@ -113,6 +113,7 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     filmMode: dbPhoto.film_mode || '',
     isFavorite: false,
     isHidden: false,
+    isRecipeDisplay: dbPhoto.source_type === 'recipe_display' || Boolean(dbPhoto.is_recipe_display),
     rating: 0,
     tags: dbPhoto.tags ? dbPhoto.tags.split(',').filter((t: string) => t.trim()) : [],
     ownerId: 'local',

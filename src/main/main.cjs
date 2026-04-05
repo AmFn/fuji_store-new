@@ -8,6 +8,7 @@ let mainWindow;
 let libraryManager;
 let thumbnailCacheDir = '';
 let configPath = '';
+let recipePhotoDir = '';
 
 async function loadConfig() {
   try {
@@ -91,6 +92,7 @@ async function scanFilesDirect(filePaths, targetFolderId) {
         updated_at: Math.floor(st.mtimeMs),
         thumbnail_status: 'pending',
         deleted: 0,
+        source_type: 'library',
       });
     } catch {
     }
@@ -121,6 +123,7 @@ app.whenReady().then(async () => {
   const dbPath = path.join(projectDir, 'database', 'photos.db');
   configPath = path.join(projectDir, 'config.json');
   thumbnailCacheDir = path.join(projectDir, 'cache', 'thumbnails');
+  recipePhotoDir = path.join(projectDir, 'cache', 'recipe-photos');
   
   const config = await loadConfig();
   if (config.cacheDir) {
@@ -129,6 +132,7 @@ app.whenReady().then(async () => {
   
   await fs.mkdir(path.dirname(dbPath), { recursive: true });
   await fs.mkdir(thumbnailCacheDir, { recursive: true });
+  await fs.mkdir(recipePhotoDir, { recursive: true });
 
   const { LibraryManager, registerLibraryIpc } = await import('../../main/libraryManager.js');
   libraryManager = await LibraryManager.create({
@@ -266,6 +270,65 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:get-photos-by-date', async (_e, { dateStr, limit }) => {
     const r = await libraryManager.getTimelinePhotosByDay(dateStr, 1, limit || 120);
     return r.items;
+  });
+  ipcMain.handle('library:add-recipe-display-photos', async (_e, { recipeId, filePaths }) => {
+    const safeRecipeId = Number(recipeId);
+    if (!Number.isFinite(safeRecipeId)) {
+      throw new Error('Invalid recipeId');
+    }
+
+    const inputs = Array.isArray(filePaths) ? filePaths : [];
+    if (inputs.length === 0) {
+      return { success: true, added: 0 };
+    }
+
+    await fs.mkdir(recipePhotoDir, { recursive: true });
+    let added = 0;
+    const now = Date.now();
+
+    for (let i = 0; i < inputs.length; i += 1) {
+      const sourcePath = inputs[i];
+      try {
+        const sourceStats = await fs.stat(sourcePath);
+        if (!sourceStats.isFile()) continue;
+
+        const ext = path.extname(sourcePath) || '.jpg';
+        const baseHash = quickHash(normalizePath(sourcePath), sourceStats);
+        const targetName = `${safeRecipeId}-${now}-${i}-${baseHash}${ext.toLowerCase()}`;
+        const targetPath = normalizePath(path.join(recipePhotoDir, targetName));
+        await fs.copyFile(sourcePath, targetPath);
+
+        const targetStats = await fs.stat(targetPath);
+        const targetHash = quickHash(targetPath, targetStats);
+        await libraryManager.db.upsertPhoto({
+          path: targetPath,
+          hash: targetHash,
+          size: targetStats.size,
+          width: 0,
+          height: 0,
+          created_at: Math.floor(targetStats.birthtimeMs || targetStats.ctimeMs || targetStats.mtimeMs),
+          updated_at: Math.floor(targetStats.mtimeMs),
+          thumbnail_status: 'pending',
+          deleted: 0,
+          source_type: 'recipe_display',
+        });
+
+        const row = await libraryManager.db.getPhotoByPath(targetPath);
+        if (!row?.id) continue;
+
+        await libraryManager.db.addRecipeToPhoto(row.id, safeRecipeId);
+        await libraryManager.thumbnailQueue.enqueue(targetPath, targetHash, { reason: 'recipe-display' });
+        added += 1;
+      } catch (error) {
+        console.error('[Main] add recipe display photo failed:', sourcePath, error);
+      }
+    }
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('library:updated', { type: 'recipe:photos-updated', recipeId: safeRecipeId, added });
+    }
+
+    return { success: true, added };
   });
   ipcMain.handle('library:create-folder', async (_e, { folder }) => libraryManager.createFolder(folder));
   ipcMain.handle('library:update-folder', async (_e, { folder }) => libraryManager.updateFolder(folder));
