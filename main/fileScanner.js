@@ -296,12 +296,16 @@ export class FileScanner {
         this.progress.scanned += 1;
 
         try {
-          // 检查文件是否已经在数据库中
+          // 检查文件是否已经在数据库中且未被删除
           const stats = await fsp.stat(normalizedPath);
           const existing = await this.db.getPhotoByPath(normalizedPath);
           if (existing && existing.deleted === 0) {
             this.progress.skipped += 1;
             continue;
+          }
+          // 如果文件被软删除，也视为新文件，不跳过
+          if (existing && existing.deleted === 1) {
+            // 不跳过，将其添加到新文件列表中，以便用户可以重新添加
           }
 
           // 构建文件记录
