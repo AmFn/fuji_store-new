@@ -184,4 +184,24 @@ export function registerLibraryIpc(ipcMain, manager) {
   ipcMain.handle('library:delete-folder-v2', async (_evt, folderId) => manager.deleteFolder(folderId));
   ipcMain.handle('library:get-all-folders-v2', async () => manager.getAllFolders());
   ipcMain.handle('clearAllPhotos', async () => manager.clearAllPhotos());
+  
+  // 处理删除照片的事件
+  ipcMain.handle('library:delete-photo', async (_evt, { photoId }) => {
+    try {
+      return manager.db.deletePhoto(photoId);
+    } catch (error) {
+      console.error('Delete photo failed:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  // 处理移除照片的事件
+  ipcMain.handle('library:remove-photo', async (_evt, { photoPath }) => {
+    try {
+      return manager.db.removePhoto(photoPath);
+    } catch (error) {
+      console.error('Remove photo failed:', error);
+      return { success: false, error: error.message };
+    }
+  });
 }

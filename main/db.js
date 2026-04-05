@@ -816,6 +816,16 @@ export class PhotoDatabase {
     return result.changes;
   }
 
+  async deletePhoto(id) {
+    return this.markPhotoDeletedById(id);
+  }
+
+  async removePhoto(filePath) {
+    const normalizedPath = normalizePath(filePath);
+    const result = this.db.prepare('UPDATE photos SET deleted = 1, updated_at = ? WHERE path = ?').run(Date.now(), normalizedPath);
+    return { success: result.changes > 0, deleted: result.changes };
+  }
+
   async restorePhoto(filePath) {
     const result = this.db.prepare('UPDATE photos SET deleted = 0, updated_at = ? WHERE path = ?').run(Date.now(), normalizePath(filePath));
     return result.changes > 0;
