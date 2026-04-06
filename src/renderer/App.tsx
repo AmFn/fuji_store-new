@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useTransition } from 'react';
+import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Images, 
@@ -32,7 +33,7 @@ import {
 
 import { cn } from './lib/utils';
 import { Photo, Recipe, Tag, Folder } from './types';
-import { FILM_MODES, FILM_SHORT_CODES, COLORS } from './constants/filmModes';
+import { FILM_MODES, FILM_SHORT_CODES, FILM_MODE_HEX_MAP, COLORS } from './constants/filmModes';
 import { isPhotoInFolder } from './utils/fileUtils';
 import { useLanguage } from './hooks/useLanguage';
 
@@ -99,6 +100,22 @@ const IMPORT_TASKS_STORAGE_KEY = 'fuji_import_tasks_v1';
 
 const ROOT_PARENT_ID = '-1';
 
+function normalizeFilmMode(mode: string | undefined | null): string {
+  if (!mode) return '';
+  const trimmed = mode.trim();
+  if (trimmed.startsWith('0x')) {
+    return FILM_MODE_HEX_MAP[trimmed.toLowerCase()] || trimmed;
+  }
+  return trimmed;
+}
+
+function getFilmModeDisplay(filmMode: string | undefined | null): string {
+  if (!filmMode) return '';
+  const normalized = normalizeFilmMode(filmMode);
+  const found = FILM_MODES.find(m => m.toLowerCase() === normalized.toLowerCase());
+  return found || normalized;
+}
+
 // 从服务层获取真实数据，不再使用模拟数据
 
 export default function App() {
@@ -113,7 +130,11 @@ export default function App() {
   } as any);
   
   // View state
-  const [activeView, setActiveView] = useState<'photos' | 'timeline' | 'recipes' | 'stats' | 'settings' | 'favorites' | 'hidden' | 'tags' | 'posters' | 'templates' | 'metadataParser'>('photos');
+  type AppView = 'photos' | 'timeline' | 'recipes' | 'stats' | 'settings' | 'favorites' | 'hidden' | 'tags' | 'posters' | 'templates' | 'metadataParser';
+  const [activeView, setActiveView] = useState<AppView>('photos');
+  const [pendingView, setPendingView] = useState<AppView | null>(null);
+  const [viewTransitionStage, setViewTransitionStage] = useState<'idle' | 'animating' | 'loading'>('idle');
+  const [isViewPending, startViewTransition] = useTransition();
   const [previousView, setPreviousView] = useState<'photos' | 'timeline' | 'recipes' | 'stats' | 'settings' | 'favorites' | 'hidden' | 'tags' | 'posters' | 'templates'>('settings');
   const [metadataFields, setMetadataFields] = useState<any[]>([]);
   const [displayConfig, setDisplayConfig] = useState<Record<string, string[]>>({
@@ -203,6 +224,21 @@ export default function App() {
   // UI states
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [filterFilmMode, setFilterFilmMode] = useState('All');
+  const [dbFilmModes, setDbFilmModes] = useState<string[]>([]);
+  
+  useEffect(() => {
+    const loadFilmModes = async () => {
+      if (window.electronAPI?.getDistinctFilmModes) {
+        const modes = await window.electronAPI.getDistinctFilmModes();
+        if (modes && modes.length > 0) {
+          const normalizedModes = modes.map(m => getFilmModeDisplay(m)).filter(Boolean);
+          const uniqueModes = [...new Set(normalizedModes)].sort();
+          setDbFilmModes(uniqueModes);
+        }
+      }
+    };
+    loadFilmModes();
+  }, []);
   const [filterExtension, setFilterExtension] = useState<'JPG' | 'RAF' | 'All'>('All');
   const [filterDate, setFilterDate] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -236,6 +272,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const switchTimerRef = useRef<number | null>(null);
   
   // Recipes state - 后续可以从服务层获取
   
@@ -258,6 +295,58 @@ export default function App() {
     photos: timelinePhotos, 
     loading: timelineLoading 
   } = useTimeline(activeView === 'timeline');
+
+  const uiActiveView = pendingView || activeView;
+  const isViewSwitching = viewTransitionStage !== 'idle';
+
+  const isTargetViewReady = useCallback((view: AppView) => {
+    if (view === 'timeline') return !timelineLoading;
+    return true;
+  }, [timelineLoading]);
+
+  const requestViewSwitch = useCallback((nextView: AppView, options?: { resetFolder?: boolean }) => {
+    if (pendingView === nextView && isViewSwitching) return;
+    if (!isViewSwitching && activeView === nextView) return;
+
+    if (switchTimerRef.current) {
+      window.clearTimeout(switchTimerRef.current);
+      switchTimerRef.current = null;
+    }
+
+    flushSync(() => {
+      if (options?.resetFolder) {
+        setActiveFolderId(null);
+      }
+      setPendingView(nextView);
+      setViewTransitionStage('animating');
+    });
+
+    switchTimerRef.current = window.setTimeout(() => {
+      setViewTransitionStage('loading');
+      startViewTransition(() => {
+        setActiveView(nextView);
+      });
+    }, 70);
+  }, [activeView, pendingView, isViewSwitching]);
+
+  useEffect(() => {
+    if (viewTransitionStage !== 'loading') return;
+    if (!pendingView) return;
+    if (activeView !== pendingView) return;
+    if (isViewPending) return;
+    if (!isTargetViewReady(pendingView)) return;
+
+    setViewTransitionStage('idle');
+    setPendingView(null);
+  }, [viewTransitionStage, pendingView, activeView, isViewPending, isTargetViewReady]);
+
+  useEffect(() => {
+    return () => {
+      if (switchTimerRef.current) {
+        window.clearTimeout(switchTimerRef.current);
+      }
+    };
+  }, []);
 
 
 
@@ -547,14 +636,17 @@ export default function App() {
   // Filtered photos
   const activeFolder = folders.find((f) => f.id === activeFolderId) || null;
   const filteredPhotos = useMemo(() => {
+    if (isViewSwitching) {
+      return [];
+    }
     if (activeView !== 'photos' && activeView !== 'favorites') {
       return [];
     }
     return photos.filter(p => {
       const matchesSearch = (p.fileName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
                            p.cameraModel?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           p.filmMode?.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesFilm = filterFilmMode === 'All' || p.filmMode === filterFilmMode;
+                           getFilmModeDisplay(p.filmMode)?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesFilm = filterFilmMode === 'All' || getFilmModeDisplay(p.filmMode) === filterFilmMode;
       const matchesExtension = filterExtension === 'All' || (p.fileName?.toUpperCase() || '').endsWith(`.${filterExtension}`);
       const matchesDate = !filterDate || p.dateTime?.startsWith(filterDate);
       const matchesTags = selectedTags.length === 0 || selectedTags.every(tag => p.tags?.includes(tag));
@@ -578,7 +670,7 @@ export default function App() {
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [photos, searchQuery, filterFilmMode, filterExtension, filterDate, selectedTags, activeFolderId, activeFolder, activeView, sortBy, sortOrder]);
+  }, [photos, searchQuery, filterFilmMode, filterExtension, filterDate, selectedTags, activeFolderId, activeFolder, activeView, sortBy, sortOrder, isViewSwitching]);
   
   // Folder operations
   const handleFolderRename = async (id: string) => {
@@ -889,53 +981,52 @@ export default function App() {
             <NavItem 
               icon={<Images className="w-4 h-4" />} 
               label={t('nav.allPhotos')} 
-              active={activeView === 'photos'} 
+              active={uiActiveView === 'photos'} 
               onClick={() => {
-                setActiveFolderId(null);
-                setActiveView('photos');
+                requestViewSwitch('photos', { resetFolder: true });
               }} 
               theme={theme}
             />
             <NavItem 
               icon={<Clock className="w-4 h-4" />} 
               label={t('nav.timeline')} 
-              active={activeView === 'timeline'} 
-              onClick={() => setActiveView('timeline')} 
+              active={uiActiveView === 'timeline'} 
+              onClick={() => requestViewSwitch('timeline')} 
               theme={theme}
             />
             <NavItem 
               icon={<Heart className="w-4 h-4" />} 
               label={t('nav.favorites')} 
-              active={activeView === 'favorites'} 
-              onClick={() => setActiveView('favorites')} 
+              active={uiActiveView === 'favorites'} 
+              onClick={() => requestViewSwitch('favorites')} 
               theme={theme}
             />
             <NavItem 
               icon={<Tags className="w-4 h-4" />} 
               label={t('nav.tags')} 
-              active={activeView === 'tags'} 
-              onClick={() => setActiveView('tags')} 
+              active={uiActiveView === 'tags'} 
+              onClick={() => requestViewSwitch('tags')} 
               theme={theme}
             />
             <NavItem 
               icon={<BarChart3 className="w-4 h-4" />} 
               label={t('nav.stats')} 
-              active={activeView === 'stats'} 
-              onClick={() => setActiveView('stats')} 
+              active={uiActiveView === 'stats'} 
+              onClick={() => requestViewSwitch('stats')} 
               theme={theme}
             />
             <NavItem 
               icon={<FlaskConical className="w-4 h-4" />} 
               label={t('nav.recipes')} 
-              active={activeView === 'recipes'} 
-              onClick={() => setActiveView('recipes')} 
+              active={uiActiveView === 'recipes'} 
+              onClick={() => requestViewSwitch('recipes')} 
               theme={theme}
             />
             <NavItem 
               icon={<Palette className="w-4 h-4" />} 
               label={t('nav.templates')} 
-              active={activeView === 'templates'} 
-              onClick={() => setActiveView('templates')} 
+              active={uiActiveView === 'templates'} 
+              onClick={() => requestViewSwitch('templates')} 
               theme={theme}
             />
 
@@ -970,7 +1061,7 @@ export default function App() {
                 activeFolderId={activeFolderId}
                 onFolderSelect={(id) => {
                   setActiveFolderId(id);
-                  setActiveView('photos');
+                  requestViewSwitch('photos');
                 }}
                 onRefresh={(id) => {
                   setSyncFolderId(id);
@@ -1016,10 +1107,10 @@ export default function App() {
             </button>
           </div>
           <button 
-            onClick={() => setActiveView('settings')}
+            onClick={() => requestViewSwitch('settings')}
             className={cn(
               "w-full py-2 flex items-center justify-center gap-2 text-xs font-semibold transition-colors rounded-lg",
-              activeView === 'settings' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-slate-400 hover:text-blue-500 hover:bg-blue-500/5"
+              uiActiveView === 'settings' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-slate-400 hover:text-blue-500 hover:bg-blue-500/5"
             )}
           >
             <Settings className="w-3.5 h-3.5" />
@@ -1267,7 +1358,7 @@ export default function App() {
 
                   <div className="max-h-32 overflow-y-auto pr-2 custom-scrollbar">
                     <div className="flex flex-wrap gap-2">
-                      {['All', ...FILM_MODES].map(mode => (
+                      {['All', ...dbFilmModes].map(mode => (
                         <button 
                           key={mode}
                           onClick={() => setFilterFilmMode(mode)}
@@ -1371,8 +1462,22 @@ export default function App() {
         </AnimatePresence>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-8">
-          {loading ? (
+        <div className="flex-1 overflow-y-auto p-8 relative">
+          {isViewSwitching && (
+            <div className="absolute inset-0 z-30 bg-[var(--bg-primary)]/92 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
+              {viewTransitionStage === 'animating' ? (
+                <div className="text-xs font-black uppercase tracking-widest text-slate-400">Switching View...</div>
+              ) : (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                  <div className="text-xs font-black uppercase tracking-widest text-slate-400">
+                    {pendingView === 'timeline' ? 'Loading Timeline...' : 'Loading View...'}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {!isViewSwitching && (loading ? (
             <div className="py-20 max-w-xl mx-auto space-y-4">
               <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
                 <span>{bootProgress.text || t('loading')}</span>
@@ -1432,7 +1537,7 @@ export default function App() {
                     onPhotoClick={setSelectedPhoto} 
                     onSearchDate={(date) => {
                       setFilterDate(date);
-                      setActiveView('photos');
+                      requestViewSwitch('photos');
                       setIsAdvancedFilterOpen(true);
                     }}
                   />
@@ -1446,7 +1551,7 @@ export default function App() {
                   setPhotos={setPhotos}
                   onTagClick={(tagName) => {
                     setSelectedTags([tagName]);
-                    setActiveView('photos');
+                    requestViewSwitch('photos');
                   }} 
                 />
               ) : activeView === 'settings' ? (
@@ -1464,14 +1569,14 @@ export default function App() {
                   }}
                   onOpenMetadataParser={() => {
                     setPreviousView('settings');
-                    setActiveView('metadataParser');
+                    requestViewSwitch('metadataParser');
                   }}
                 />
               ) : activeView === 'metadataParser' ? (
                 <MetadataParserView 
                   key="metadataParser"
                   onBack={() => {
-                    setActiveView(previousView || 'settings');
+                    requestViewSwitch(previousView || 'settings');
                   }}
                   onFieldsChange={(fields) => {
                     setMetadataFields(fields);
@@ -1563,7 +1668,7 @@ export default function App() {
                 </div>
               )}
             </AnimatePresence>
-          )}
+          ))}
         </div>
       </main>
 

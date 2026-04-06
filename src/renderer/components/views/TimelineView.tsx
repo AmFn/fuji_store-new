@@ -1,129 +1,262 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Clock, ChevronDown, ExternalLink, Eye } from 'lucide-react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { Calendar, ChevronDown, ExternalLink } from 'lucide-react';
 import { Photo } from '../../types';
 
 interface TimelineViewProps {
   photos: Photo[];
-  onPhotoClick: (photo: Photo) => void;
+  onPhotoClick?: (photo: Photo) => void;
   onSearchDate: (date: string) => void;
 }
 
-export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineViewProps) {
-  const [collapsedYears, setCollapsedYears] = useState<Set<string>>(new Set());
-  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
-  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
-  const [dateLimits, setDateLimits] = useState<Record<string, number>>({});
-  const [visibleYearCount, setVisibleYearCount] = useState(2);
+type DaySummary = {
+  dayKey: string;
+  label: string;
+  count: number;
+  preview: Photo[];
+};
 
-  const INITIAL_GRID_LIMIT = 24;
-  const LOAD_MORE_STEP = 24;
+type YearSummary = {
+  year: string;
+  count: number;
+  days: DaySummary[];
+};
 
-  // Group photos by Year, then by Date
-  const groupedByYear = useMemo(() => {
-    return photos.reduce((acc, p) => {
-      const d = new Date(p.dateTime || '');
-      const year = d.getFullYear().toString();
-      const dateKey = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-      
-      if (!acc[year]) acc[year] = {};
-      if (!acc[year][dateKey]) acc[year][dateKey] = [];
-      acc[year][dateKey].push(p);
-      return acc;
-    }, {} as Record<string, Record<string, Photo[]>>);
+type TimelineRow =
+  | { type: 'year'; id: string; year: string; count: number }
+  | { type: 'day'; id: string; day: DaySummary };
+
+const pad2 = (v: number) => String(v).padStart(2, '0');
+const dateLabelFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+const YEAR_ROW_HEIGHT = 110;
+const DAY_ROW_HEIGHT_EXPANDED = 270;
+const DAY_ROW_HEIGHT_COLLAPSED = 78;
+const OVERSCAN_PX = 700;
+const TIMELINE_UI_STORAGE_KEY = 'fuji_timeline_ui_v1';
+
+type TimelineUIPrefs = {
+  collapsedYears?: string[];
+  collapsedDays?: string[];
+  visibleYearCount?: number;
+};
+
+function lowerBound(arr: number[], target: number): number {
+  let l = 0;
+  let r = arr.length - 1;
+  while (l < r) {
+    const m = (l + r) >> 1;
+    if (arr[m] < target) l = m + 1;
+    else r = m;
+  }
+  return l;
+}
+
+export const TimelineView = React.memo(function TimelineView({ photos, onSearchDate }: TimelineViewProps) {
+  const initialPrefs = useMemo<TimelineUIPrefs | null>(() => {
+    try {
+      const raw = localStorage.getItem(TIMELINE_UI_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const [collapsedYears, setCollapsedYears] = useState<Set<string>>(
+    () => new Set(initialPrefs?.collapsedYears || [])
+  );
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(
+    () => new Set(initialPrefs?.collapsedDays || [])
+  );
+  const [visibleYearCount, setVisibleYearCount] = useState(
+    () => Math.max(1, Number(initialPrefs?.visibleYearCount || 2))
+  );
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(760);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollTopRef = useRef(0);
+  const scrollRafRef = useRef<number | null>(null);
+  const initializedDefaultDaysRef = useRef(Boolean(initialPrefs));
+
+  const timeline = useMemo<YearSummary[]>(() => {
+    const years = new Map<string, { count: number; days: Map<string, DaySummary> }>();
+    for (const photo of photos) {
+      if (!photo?.dateTime) continue;
+      const dt = new Date(photo.dateTime);
+      if (Number.isNaN(dt.getTime())) continue;
+      const year = String(dt.getFullYear());
+      const dayKey = `${year}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+
+      let yearBucket = years.get(year);
+      if (!yearBucket) {
+        yearBucket = { count: 0, days: new Map<string, DaySummary>() };
+        years.set(year, yearBucket);
+      }
+      yearBucket.count += 1;
+
+      let day = yearBucket.days.get(dayKey);
+      if (!day) {
+        day = {
+          dayKey,
+          label: dateLabelFormatter.format(dt),
+          count: 0,
+          preview: [],
+        };
+        yearBucket.days.set(dayKey, day);
+      }
+      day.count += 1;
+      if (day.preview.length < 4) {
+        day.preview.push(photo);
+      }
+    }
+
+    return Array.from(years.entries())
+      .sort((a, b) => Number(b[0]) - Number(a[0]))
+      .map(([year, bucket]) => ({
+        year,
+        count: bucket.count,
+        days: Array.from(bucket.days.values()).sort((a, b) => b.dayKey.localeCompare(a.dayKey)),
+      }));
   }, [photos]);
 
-  const sortedYears = useMemo(() => Object.keys(groupedByYear).sort((a, b) => b.localeCompare(a)), [groupedByYear]);
-  const visibleYears = useMemo(() => sortedYears.slice(0, visibleYearCount), [sortedYears, visibleYearCount]);
+  const sortedYears = useMemo(() => timeline.map((y) => y.year), [timeline]);
+  const visibleTimeline = useMemo(() => timeline.slice(0, visibleYearCount), [timeline, visibleYearCount]);
+  const allDayKeys = useMemo(() => timeline.flatMap((y) => y.days.map((d) => d.dayKey)), [timeline]);
+  const latestDayKey = allDayKeys.length > 0 ? allDayKeys[0] : null;
 
   useEffect(() => {
     setVisibleYearCount(2);
-  }, [photos.length]);
+    setScrollTop(0);
+    if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
+  }, [photos.length, initialPrefs]);
 
-  // Initialize collapsedDates: only the very first date of the timeline is expanded by default
   useEffect(() => {
-    const newCollapsed = new Set<string>();
-    let isFirst = true;
-    sortedYears.forEach(year => {
-      const dates = Object.keys(groupedByYear[year]).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-      dates.forEach(date => {
-        if (isFirst) {
-          isFirst = false;
-        } else {
-          newCollapsed.add(date);
-        }
-      });
-    });
-    setCollapsedDates(newCollapsed);
-  }, [sortedYears, groupedByYear]);
+    const validYears = new Set(sortedYears);
+    const validDays = new Set(allDayKeys);
+    setCollapsedYears((prev) => new Set([...prev].filter((y) => validYears.has(y))));
+    setCollapsedDays((prev) => new Set([...prev].filter((d) => validDays.has(d))));
+  }, [sortedYears, allDayKeys]);
+
+  useEffect(() => {
+    if (initializedDefaultDaysRef.current) return;
+    if (allDayKeys.length === 0) return;
+    const defaults = new Set(allDayKeys);
+    if (latestDayKey) {
+      defaults.delete(latestDayKey);
+    }
+    setCollapsedDays(defaults);
+    initializedDefaultDaysRef.current = true;
+  }, [allDayKeys, latestDayKey]);
+
+  useEffect(() => {
+    try {
+      const payload: TimelineUIPrefs = {
+        collapsedYears: [...collapsedYears],
+        collapsedDays: [...collapsedDays],
+        visibleYearCount,
+      };
+      localStorage.setItem(TIMELINE_UI_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+    }
+  }, [collapsedYears, collapsedDays, visibleYearCount]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (scrollerRef.current) {
+        setViewportHeight(scrollerRef.current.clientHeight || 760);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
+  }, []);
 
   const toggleYearCollapse = (year: string) => {
-    const newCollapsed = new Set(collapsedYears);
-    if (newCollapsed.has(year)) {
-      newCollapsed.delete(year);
-    } else {
-      newCollapsed.add(year);
-    }
-    setCollapsedYears(newCollapsed);
+    const next = new Set(collapsedYears);
+    if (next.has(year)) next.delete(year);
+    else next.add(year);
+    setCollapsedYears(next);
   };
 
-  const toggleDateCollapse = (date: string) => {
-    const newCollapsed = new Set(collapsedDates);
-    if (newCollapsed.has(date)) {
-      newCollapsed.delete(date);
-    } else {
-      newCollapsed.add(date);
-    }
-    setCollapsedDates(newCollapsed);
+  const toggleDayCollapse = (dayKey: string) => {
+    const next = new Set(collapsedDays);
+    if (next.has(dayKey)) next.delete(dayKey);
+    else next.add(dayKey);
+    setCollapsedDays(next);
   };
 
-  const toggleDateExpand = (date: string) => {
-    const newExpanded = new Set(expandedDates);
-    if (newExpanded.has(date)) {
-      newExpanded.delete(date);
-    } else {
-      newExpanded.add(date);
-      if (!dateLimits[date]) {
-        setDateLimits(prev => ({ ...prev, [date]: INITIAL_GRID_LIMIT }));
+  const rows = useMemo<TimelineRow[]>(() => {
+    const out: TimelineRow[] = [];
+    for (const y of visibleTimeline) {
+      out.push({ type: 'year', id: `year-${y.year}`, year: y.year, count: y.count });
+      if (!collapsedYears.has(y.year)) {
+        for (const day of y.days) {
+          out.push({ type: 'day', id: `day-${day.dayKey}`, day });
+        }
       }
     }
-    setExpandedDates(newExpanded);
-  };
+    return out;
+  }, [visibleTimeline, collapsedYears]);
 
-  const loadMorePhotos = (date: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDateLimits(prev => ({ ...prev, [date]: (prev[date] || INITIAL_GRID_LIMIT) + LOAD_MORE_STEP }));
-  };
+  const cumulativeHeights = useMemo(() => {
+    const arr = new Array(rows.length + 1);
+    arr[0] = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const h = rows[i].type === 'year'
+        ? YEAR_ROW_HEIGHT
+        : (collapsedDays.has(rows[i].day.dayKey) ? DAY_ROW_HEIGHT_COLLAPSED : DAY_ROW_HEIGHT_EXPANDED);
+      arr[i + 1] = arr[i] + h;
+    }
+    return arr;
+  }, [rows, collapsedDays]);
 
-  const flattenedTimeline = useMemo(() => {
-    const list: (
-      | { type: 'year', year: string, count: number }
-      | { type: 'date', date: string, items: Photo[] }
-    )[] = [];
-    
-    visibleYears.forEach(year => {
-      const isYearCollapsed = collapsedYears.has(year);
-      const dateGroups = groupedByYear[year];
-      const sortedDates = Object.keys(dateGroups).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-      
-      list.push({ 
-        type: 'year', 
-        year, 
-        count: Object.values(dateGroups).flat().length 
-      });
+  const totalHeight = cumulativeHeights[cumulativeHeights.length - 1] || 0;
 
-      if (!isYearCollapsed) {
-        sortedDates.forEach(date => {
-          list.push({ 
-            type: 'date', 
-            date, 
-            items: dateGroups[date] 
-          });
-        });
-      }
+  const { startIndex, endIndex, topSpacer, bottomSpacer } = useMemo(() => {
+    if (rows.length === 0) {
+      return { startIndex: 0, endIndex: -1, topSpacer: 0, bottomSpacer: 0 };
+    }
+
+    const startPx = Math.max(0, scrollTop - OVERSCAN_PX);
+    const endPx = Math.min(totalHeight, scrollTop + viewportHeight + OVERSCAN_PX);
+
+    let start = lowerBound(cumulativeHeights, startPx);
+    if (start > 0) start -= 1;
+    let end = lowerBound(cumulativeHeights, endPx);
+    if (end < rows.length) end += 1;
+
+    start = Math.max(0, Math.min(start, rows.length - 1));
+    end = Math.max(start, Math.min(end, rows.length - 1));
+
+    const top = cumulativeHeights[start] || 0;
+    const bottom = Math.max(0, totalHeight - (cumulativeHeights[end + 1] || totalHeight));
+
+    return { startIndex: start, endIndex: end, topSpacer: top, bottomSpacer: bottom };
+  }, [rows.length, cumulativeHeights, scrollTop, viewportHeight, totalHeight]);
+
+  const visibleRows = useMemo(() => {
+    if (endIndex < startIndex) return [] as TimelineRow[];
+    return rows.slice(startIndex, endIndex + 1);
+  }, [rows, startIndex, endIndex]);
+
+  const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    scrollTopRef.current = e.currentTarget.scrollTop;
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      setScrollTop(scrollTopRef.current);
     });
-    return list;
-  }, [visibleYears, groupedByYear, collapsedYears]);
+  }, []);
 
   if (photos.length === 0) {
     return (
@@ -140,12 +273,11 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
   }
 
   return (
-    <div className="h-full relative">
-      {/* Main Timeline Line */}
+    <div className="h-[calc(100vh-10rem)] relative">
       <div className="absolute left-12 top-0 bottom-0 w-px bg-gradient-to-b from-blue-500/50 via-slate-500/10 to-transparent z-0" />
 
-      <div className="flex justify-end pr-8 pt-8 relative z-10">
-        <button 
+      <div className="flex justify-end pr-8 pt-3 pb-4 relative z-10">
+        <button
           onClick={() => {
             if (collapsedYears.size === sortedYears.length) {
               setCollapsedYears(new Set());
@@ -159,201 +291,83 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
         </button>
       </div>
 
-      <div className="relative z-10">
-        {flattenedTimeline.map((item, index) => {
-          if (item.type === 'year') {
-            const isYearCollapsed = collapsedYears.has(item.year);
+      <div ref={scrollerRef} onScroll={onScroll} className="h-[calc(100%-3.25rem)] overflow-y-auto pr-2 relative z-10">
+        <div style={{ height: topSpacer }} />
+
+        {visibleRows.map((row) => {
+          if (row.type === 'year') {
+            const isYearCollapsed = collapsedYears.has(row.year);
             return (
-              <div key={`year-${item.year}`} className="relative pl-8 pr-8 py-8 bg-[var(--bg-primary)]">
-                <div 
-                  className="flex items-center gap-6 group cursor-pointer" 
-                  onClick={() => toggleYearCollapse(item.year)}
-                >
+              <div key={row.id} className="relative pl-8 pr-8 py-6 bg-[var(--bg-primary)]" style={{ height: YEAR_ROW_HEIGHT }}>
+                <div className="flex items-center gap-6 group cursor-pointer" onClick={() => toggleYearCollapse(row.year)}>
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-4 border-blue-500 shadow-lg shadow-blue-500/20 z-10" />
                   <div className="flex items-baseline gap-4">
-                    <h2 className="text-5xl font-black tracking-tighter text-slate-900 dark:text-white group-hover:text-blue-500 transition-colors">{item.year}</h2>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                      {item.count} Photos
-                    </span>
+                    <h2 className="text-4xl font-black tracking-tighter text-slate-900 dark:text-white group-hover:text-blue-500 transition-colors">{row.year}</h2>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{row.count} Photos</span>
                   </div>
                   <div className="flex-1 h-px bg-gradient-to-r from-slate-500/10 to-transparent" />
-                  <motion.div
-                    animate={{ rotate: isYearCollapsed ? -90 : 0 }}
-                    className="p-2 hover:bg-slate-500/5 rounded-xl transition-all"
-                  >
-                    <ChevronDown className="w-5 h-5 text-slate-400" />
-                  </motion.div>
+                  <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${isYearCollapsed ? '-rotate-90' : ''}`} />
                 </div>
               </div>
             );
           }
 
-          const date = item.date;
-          const items = item.items;
-          const isExpanded = expandedDates.has(date);
-          const isDateCollapsed = collapsedDates.has(date);
-
+          const day = row.day;
+          const isCollapsed = collapsedDays.has(day.dayKey);
           return (
-            <div key={`date-${date}`} className="relative pl-14 pr-8 py-6 bg-[var(--bg-primary)]">
-              <div className="space-y-8">
-                <div 
-                  className="flex items-center gap-4 cursor-pointer group/date"
-                  onClick={() => toggleDateCollapse(date)}
-                >
-                  <div className="w-3 h-3 rounded-full bg-blue-500/30 group-hover/date:bg-blue-500 transition-colors" />
-                  <div className="flex flex-col">
-                    <h3 className="text-lg font-black tracking-tight text-slate-600 dark:text-slate-300 group-hover/date:text-blue-500 transition-colors">{date}</h3>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="px-3 py-1 bg-slate-500/5 rounded-full border border-[var(--border-color)]">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        {items.length} Photos
-                      </span>
-                    </div>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const d = new Date(date);
-                        const filterDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                        onSearchDate(filterDateStr);
-                      }}
-                      className="p-2 hover:bg-blue-500/10 rounded-xl text-blue-500 transition-all group/jump"
-                      title="View in Gallery"
-                    >
-                      <ExternalLink className="w-4 h-4 group-hover/jump:scale-110 transition-transform" />
-                    </button>
-                  </div>
-                  <motion.div
-                    animate={{ rotate: isDateCollapsed ? -90 : 0 }}
-                    className="opacity-0 group-hover/date:opacity-100 transition-opacity"
+            <div
+              key={row.id}
+              className="relative pl-14 pr-8 py-4 bg-[var(--bg-primary)]"
+              style={{ height: isCollapsed ? DAY_ROW_HEIGHT_COLLAPSED : DAY_ROW_HEIGHT_EXPANDED }}
+            >
+              <div className="w-full text-left group/day">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-blue-500/30 group-hover/day:bg-blue-500 transition-colors" />
+                  <button
+                    onClick={() => toggleDayCollapse(day.dayKey)}
+                    className="text-lg font-black tracking-tight text-slate-600 dark:text-slate-300 group-hover/day:text-blue-500 transition-colors"
                   >
-                    <ChevronDown className="w-4 h-4 text-slate-400" />
-                  </motion.div>
+                    {day.label}
+                  </button>
+                  <div className="px-3 py-1 bg-slate-500/5 rounded-full border border-[var(--border-color)]">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{day.count} Photos</span>
+                  </div>
+                  <button
+                    onClick={() => onSearchDate(day.dayKey)}
+                    className="p-1 rounded-md text-blue-500 hover:bg-blue-500/10"
+                    title="Open filtered photos"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
                 </div>
 
-                <AnimatePresence mode="wait">
-                  {!isDateCollapsed && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <AnimatePresence mode="wait">
-                        {!isExpanded ? (
-                          <motion.div
-                            key="stack"
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="relative h-72 w-full max-w-md cursor-pointer group ml-6"
-                            onClick={() => toggleDateExpand(date)}
-                          >
-                            {items.slice(0, 4).map((photo, idx) => (
-                              <motion.div
-                                key={photo.id}
-                                className="absolute inset-0 rounded-[2.5rem] overflow-hidden border-4 border-white dark:border-slate-800 shadow-2xl"
-                                animate={{ 
-                                  zIndex: 4 - idx,
-                                  x: idx * 24,
-                                  y: idx * 14,
-                                  rotate: idx === 0 ? 0 : idx === 1 ? 8 : idx === 2 ? -8 : 4,
-                                  scale: 1 - idx * 0.05,
-                                }}
-                                whileHover={{
-                                  x: idx * 36,
-                                  y: idx * 20,
-                                  rotate: idx === 0 ? -2 : idx === 1 ? 15 : idx === 2 ? -15 : 8,
-                                  transition: { type: "spring", stiffness: 300, damping: 20 }
-                                }}
-                              >
-                                <img src={photo.thumbnailUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" loading="lazy" />
-                                {idx === 0 && (
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-10">
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                                      <span className="text-white text-[10px] font-black uppercase tracking-widest opacity-80">Click to reveal album</span>
-                                    </div>
-                                    <h4 className="text-white text-2xl font-black tracking-tight">{items.length} Photos</h4>
-                                    <p className="text-white/40 text-[8px] font-bold uppercase tracking-widest mt-2">{items[0].filmMode} • {items[0].cameraModel}</p>
-                                  </div>
-                                )}
-                              </motion.div>
-                            ))}
-                            <div className="absolute -inset-10 bg-blue-500/5 blur-[100px] rounded-full -z-10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </motion.div>
-                        ) : (
-                          <motion.div
-                            key="grid"
-                            initial={{ opacity: 0, y: 30 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 30 }}
-                            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 ml-6"
-                          >
-                            {items.slice(0, dateLimits[date] || INITIAL_GRID_LIMIT).map((photo, pIdx) => (
-                              <motion.div
-                                key={photo.id}
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ delay: pIdx * 0.01 }}
-                                whileHover={{ scale: 1.05, y: -8 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => onPhotoClick(photo)}
-                                className="aspect-square rounded-3xl overflow-hidden cursor-pointer border border-[var(--border-color)] shadow-sm relative group bg-slate-500/5"
-                              >
-                                <img src={photo.thumbnailUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" loading="lazy" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
-                                  <p className="text-[8px] font-black text-white truncate uppercase tracking-widest">{photo.filmMode}</p>
-                                </div>
-                                <div className="absolute top-3 right-3 p-2 bg-black/40 backdrop-blur-md rounded-xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Eye className="w-3 h-3 text-white" />
-                                </div>
-                              </motion.div>
-                            ))}
-                            
-                            {items.length > (dateLimits[date] || INITIAL_GRID_LIMIT) && (
-                              <motion.button
-                                whileHover={{ scale: 1.05, backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={(e) => loadMorePhotos(date, e)}
-                                className="aspect-square rounded-3xl border-2 border-dashed border-blue-500/30 bg-blue-500/5 flex flex-col items-center justify-center gap-3 transition-all group"
-                              >
-                                <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all">
-                                  <ExternalLink className="w-6 h-6 text-blue-500 group-hover:text-white" />
-                                </div>
-                                <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Load More</span>
-                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-                                  {items.length - (dateLimits[date] || INITIAL_GRID_LIMIT)} remaining
-                                </span>
-                              </motion.button>
-                            )}
-
-                            <motion.button 
-                              whileHover={{ scale: 1.05, backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => toggleDateExpand(date)}
-                              className="aspect-square rounded-3xl border-2 border-dashed border-slate-500/30 bg-slate-500/5 flex flex-col items-center justify-center gap-3 transition-all group"
-                            >
-                              <div className="w-12 h-12 rounded-full bg-slate-500/10 flex items-center justify-center group-hover:bg-slate-500 group-hover:text-white transition-all">
-                                <ChevronDown className="w-6 h-6 text-slate-400 group-hover:text-white" />
-                              </div>
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Collapse</span>
-                            </motion.button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {!isCollapsed && (
+                  <button onClick={() => onSearchDate(day.dayKey)} className="relative h-44 w-full max-w-sm block">
+                    {day.preview.map((photo, idx) => (
+                      <div
+                        key={photo.id}
+                        className="absolute inset-0 rounded-3xl overflow-hidden border-2 border-white dark:border-slate-800 shadow-lg"
+                        style={{
+                          zIndex: 5 - idx,
+                          transform: `translate(${idx * 14}px, ${idx * 10}px) rotate(${idx === 0 ? 0 : idx === 1 ? 5 : idx === 2 ? -5 : 3}deg) scale(${1 - idx * 0.04})`,
+                        }}
+                      >
+                        <img src={photo.thumbnailUrl} className="w-full h-full object-cover" alt="" loading="lazy" decoding="async" />
+                      </div>
+                    ))}
+                  </button>
+                )}
               </div>
             </div>
           );
         })}
 
+        <div style={{ height: bottomSpacer }} />
+
         {visibleYearCount < sortedYears.length && (
-          <div className="px-8 pb-12 flex justify-center">
+          <div className="px-8 pb-8 flex justify-center">
             <button
-              onClick={() => setVisibleYearCount(prev => Math.min(prev + 2, sortedYears.length))}
+              onClick={() => setVisibleYearCount((prev) => Math.min(prev + 2, sortedYears.length))}
               className="px-5 py-2 rounded-full border border-blue-500/30 bg-blue-500/5 text-blue-500 text-[10px] font-black uppercase tracking-widest hover:bg-blue-500/10 transition-all"
             >
               Load Older Years
@@ -363,4 +377,4 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
       </div>
     </div>
   );
-}
+});

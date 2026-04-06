@@ -28,6 +28,7 @@ declare global {
       
       // 标签相关
       getAllTags: () => Promise<any[]>;
+      getDistinctFilmModes: () => Promise<string[]>;
       createTag: (tag: { name: string; color?: string; owner_id?: string }) => Promise<any>;
       updateTag: (tag: { id: number; name: string; color?: string }) => Promise<number>;
       deleteTag: (tagId: number) => Promise<number>;

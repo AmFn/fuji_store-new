@@ -212,6 +212,13 @@ export class LibraryManager extends EventEmitter {
     return tags;
   }
 
+  async getDistinctFilmModes() {
+    console.log('[LibraryManager] getDistinctFilmModes called');
+    const modes = await this.db.getDistinctFilmModes();
+    console.log('[LibraryManager] getDistinctFilmModes returned:', modes);
+    return modes;
+  }
+
   async createTag(tag) {
     console.log('[LibraryManager] createTag called with:', tag);
     const id = await this.db.createTag(tag);
@@ -332,6 +339,7 @@ export function registerLibraryIpc(ipcMain, manager) {
   ipcMain.handle('clearAllPhotos', async () => manager.clearAllPhotos());
 
   ipcMain.handle('library:get-all-tags', async () => manager.getAllTags());
+  ipcMain.handle('library:get-distinct-film-modes', async () => manager.getDistinctFilmModes());
   ipcMain.handle('library:create-tag', async (_evt, tag) => manager.createTag(tag));
   ipcMain.handle('library:update-tag', async (_evt, tag) => manager.updateTag(tag));
   ipcMain.handle('library:delete-tag', async (_evt, tagId) => manager.deleteTag(tagId));

@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Camera, Film, Calendar, TrendingUp } from 'lucide-react';
 import { Photo } from '../../types';
 import { COLORS } from '../../constants/filmModes';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface StatsViewProps {
   photos: Photo[];
@@ -11,6 +12,7 @@ interface StatsViewProps {
 }
 
 export function StatsView({ photos, theme }: StatsViewProps) {
+  const { t } = useLanguage();
   // 计算相机型号统计
   const cameraStats = useMemo(() => {
     return photos.reduce((acc, photo) => {
@@ -94,7 +96,7 @@ export function StatsView({ photos, theme }: StatsViewProps) {
             </div>
             <div className="text-3xl font-black">{stats.totalPhotos}</div>
           </div>
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Photos</h3>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('stats.totalPhotos')}</h3>
         </motion.div>
 
         <motion.div
@@ -109,7 +111,7 @@ export function StatsView({ photos, theme }: StatsViewProps) {
             </div>
             <div className="text-3xl font-black">{stats.uniqueCameras}</div>
           </div>
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Camera Models</h3>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('stats.cameraModels')}</h3>
         </motion.div>
 
         <motion.div
@@ -124,7 +126,7 @@ export function StatsView({ photos, theme }: StatsViewProps) {
             </div>
             <div className="text-3xl font-black">{stats.uniqueFilmModes}</div>
           </div>
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Film Modes</h3>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('stats.filmModes')}</h3>
         </motion.div>
 
         <motion.div
@@ -139,7 +141,7 @@ export function StatsView({ photos, theme }: StatsViewProps) {
             </div>
             <div className="text-3xl font-black">{stats.uniqueDates}</div>
           </div>
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capture Days</h3>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('stats.shootingDays')}</h3>
         </motion.div>
       </div>
 
@@ -155,7 +157,7 @@ export function StatsView({ photos, theme }: StatsViewProps) {
             <div className="w-10 h-10 rounded-2xl bg-blue-500/10 flex items-center justify-center">
               <Camera className="w-5 h-5 text-blue-500" />
             </div>
-            <h3 className="text-xl font-black tracking-tight">Camera Model Distribution</h3>
+            <h3 className="text-xl font-black tracking-tight">{t('stats.cameraDistribution')}</h3>
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
@@ -205,7 +207,7 @@ export function StatsView({ photos, theme }: StatsViewProps) {
             <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center">
               <Film className="w-5 h-5 text-amber-500" />
             </div>
-            <h3 className="text-xl font-black tracking-tight">Film Mode Distribution</h3>
+            <h3 className="text-xl font-black tracking-tight">{t('stats.filmDistribution')}</h3>
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
@@ -250,7 +252,7 @@ export function StatsView({ photos, theme }: StatsViewProps) {
             <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
               <Calendar className="w-5 h-5 text-emerald-500" />
             </div>
-            <h3 className="text-xl font-black tracking-tight">Date Distribution</h3>
+            <h3 className="text-xl font-black tracking-tight">{t('stats.dateDistribution')}</h3>
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">

@@ -1479,6 +1479,15 @@ export class PhotoDatabase {
     return tags;
   }
 
+  async getDistinctFilmModes() {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT film_mode FROM photos 
+      WHERE film_mode IS NOT NULL AND film_mode != '' AND deleted = 0
+      ORDER BY film_mode ASC
+    `).all();
+    return rows.map(r => r.film_mode).filter(Boolean);
+  }
+
   async createTag(tag) {
     console.log('[DB] createTag called with:', tag);
     const now = Date.now();

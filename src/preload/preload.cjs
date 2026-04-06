@@ -155,6 +155,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 获取所有标签
   getAllTags: () => ipcRenderer.invoke('library:get-all-tags'),
+  getDistinctFilmModes: () => ipcRenderer.invoke('library:get-distinct-film-modes'),
 
   // 获取所有相机型号
   getAllCameras: () => ipcRenderer.invoke('library:get-all-cameras'),

@@ -241,8 +241,8 @@ export function PhotoDetailModal({
     .slice(0, 5);
 
   const wbShift = photo.whiteBalanceShift?.split(',').map(s => s.trim()) || [];
-  const wbRed = wbShift[0] || '0';
-  const wbBlue = wbShift[1] || '0';
+  const wbRed = photoDetailConfig.includes('whiteBalanceShiftR') ? (getMetadataValue('whiteBalanceShiftR') || getMetadataValue('WhiteBalanceShiftR') || '0') : '';
+  const wbBlue = photoDetailConfig.includes('whiteBalanceShiftB') ? (getMetadataValue('whiteBalanceShiftB') || getMetadataValue('WhiteBalanceShiftB') || '0') : '';
 
   const grainParts = photo.grainEffect?.split(',').map(s => s.trim()) || [];
   const grainRoughness = grainParts[0] || 'Off';
@@ -568,7 +568,7 @@ export function PhotoDetailModal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-10 bg-black/60 backdrop-blur-xl"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-10 bg-black/30 backdrop-blur-sm"
         onClick={onClose}
       >
         <motion.div 
@@ -692,7 +692,7 @@ export function PhotoDetailModal({
                         <p className="text-[10px] font-bold truncate" title={cameraModel}>{cameraModel || '-'}</p>
                       </div>
                       <div className="bg-slate-500/5 p-3 rounded-xl border border-[var(--border-color)]">
-                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">镜头</p>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">镜头、</p>
                         <p className="text-[10px] font-bold truncate" title={lensModel}>{lensModel || '-'}</p>
                       </div>
                       <div className="bg-slate-500/5 p-3 rounded-xl border border-[var(--border-color)]">
@@ -758,11 +758,11 @@ export function PhotoDetailModal({
                       {photoDetailConfig.includes('colorChromeEffectBlue') && (
                         renderMappableCard('colorChromeEffectBlue', getConfiguredFieldLabel('colorChromeEffectBlue', t('recipe.fxBlue')), getMetadataValue('colorChromeEffectBlue') || getMetadataValue('ColorChromeEffectBlue') || photo.colorChromeEffectBlue)
                       )}
-                      {photoDetailConfig.includes('whiteBalanceShift') && (
-                        <>
-                          {renderMappableCard('whiteBalanceShiftR', getConfiguredFieldLabel('whiteBalanceShiftR', t('recipe.wbRed')), wbRed)}
-                          {renderMappableCard('whiteBalanceShiftB', getConfiguredFieldLabel('whiteBalanceShiftB', t('recipe.wbBlue')), wbBlue)}
-                        </>
+                      {photoDetailConfig.includes('whiteBalanceShiftR') && (
+                        renderMappableCard('whiteBalanceShiftR', getConfiguredFieldLabel('whiteBalanceShiftR', t('recipe.wbRed')), wbRed)
+                      )}
+                      {photoDetailConfig.includes('whiteBalanceShiftB') && (
+                        renderMappableCard('whiteBalanceShiftB', getConfiguredFieldLabel('whiteBalanceShiftB', t('recipe.wbBlue')), wbBlue)
                       )}
                     </div>
                   </div>

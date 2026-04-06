@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, HardDrive, Folder, RefreshCw, Plane, Edit2, Plus, FolderPlus, Trash2, Info } from 'lucide-react';
 import { Folder as FolderType, Photo } from '../../types';
 import { ContextMenuItem } from './ContextMenuItem';
 import { cn } from '../../lib/utils';
 import { isPhotoInFolder } from '../../utils/fileUtils';
+import { useLanguage } from '../../hooks/useLanguage';
 
 const ROOT_PARENT_ID = '-1';
 
@@ -43,9 +44,17 @@ export function DirectoryTree({
   onDeleteFolderConfirm,
   onShowFolderInfo 
 }: DirectoryTreeProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['1']));
+  const { t } = useLanguage();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folderId: string } | null>(null);
+
+  useEffect(() => {
+    if (folders.length > 0) {
+      const allFolderIds = new Set(folders.map(f => f.id));
+      setExpanded(allFolderIds);
+    }
+  }, [folders]);
 
   // 构建树状结构
   const folderTree = useMemo(() => {
@@ -239,10 +248,10 @@ export function DirectoryTree({
                 >
                   {/* 未分类目录不需要重命名和删除选项 */}
                   {!isUncategorized && (
-                    <ContextMenuItem icon={<Edit2 className="w-3.5 h-3.5" />} label="Rename" onClick={() => onRename(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
+                    <ContextMenuItem icon={<Edit2 className="w-3.5 h-3.5" />} label={t('folder.rename')} onClick={() => onRename(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
                   )}
-                  <ContextMenuItem icon={<Plus className="w-3.5 h-3.5" />} label="Add Photos" onClick={() => onAddFiles(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
-                  <ContextMenuItem icon={<FolderPlus className="w-3.5 h-3.5" />} label="New Subfolder" onClick={() => onAddSubfolder(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
+                  <ContextMenuItem icon={<Plus className="w-3.5 h-3.5" />} label={t('folder.addPhotos')} onClick={() => onAddFiles(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
+                  <ContextMenuItem icon={<FolderPlus className="w-3.5 h-3.5" />} label={t('folder.newSubfolder')} onClick={() => onAddSubfolder(contextMenu.folderId)} onClose={() => setContextMenu(null)} />
                   
                   {/* 为物理文件夹添加额外的操作选项 */}
                   {currentFolder?.type === 'physical' && (
@@ -254,7 +263,7 @@ export function DirectoryTree({
                         }
                         setContextMenu(null);
                       }} onClose={() => setContextMenu(null)} />
-                      <ContextMenuItem icon={<Plane className="w-3.5 h-3.5" />} label="Open Dir" onClick={() => {
+                      <ContextMenuItem icon={<Plane className="w-3.5 h-3.5" />} label={t('folder.openDir')} onClick={() => {
                         if (currentFolder && currentFolder.path) {
                           void onOpenFolderPath(currentFolder.path);
                         }
@@ -274,7 +283,7 @@ export function DirectoryTree({
                   }} danger onClose={() => setContextMenu(null)} />
                   {/* 未分类目录不需要删除选项 */}
                   {!isUncategorized && (
-                    <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label="Delete" onClick={() => { 
+                    <ContextMenuItem icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />} label={t('folder.delete')} onClick={() => { 
                       onDeleteFolderConfirm(contextMenu.folderId);
                       setContextMenu(null);
                     }} danger onClose={() => setContextMenu(null)} />
