@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, X, ChevronDown, Copy, RefreshCw, Check, ArrowLeft, Plus, Trash2, Eye, Image, FileText, Settings, BookOpen } from 'lucide-react';
+import { Upload, X, ChevronDown, Copy, RefreshCw, Check, ArrowLeft, Plus, Trash2, Eye, Image, FileText, Settings, BookOpen, Save } from 'lucide-react';
 import { MetadataParser, MetadataFieldConfig, MetadataDisplayConfig, ParsedMetadata, DisplayType } from '../../utils/metadataParser';
 import { cn } from '../../lib/utils';
 import { useLanguage } from '../../hooks/useLanguage';
@@ -114,17 +114,13 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
   const [activeTab, setActiveTab] = useState<'parse' | 'photoList' | 'photoDetail' | 'recipeList' | 'recipeDetail'>('parse');
   const [displayEditing, setDisplayEditing] = useState<DisplayType | null>(null);
   const [showDocModal, setShowDocModal] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
+  const [hasDisplayChanges, setHasDisplayChanges] = useState(false);
 
-  useEffect(() => {
-    saveFieldsToStorage(fields);
-    onFieldsChange?.(fields);
-  }, [fields, onFieldsChange]);
-
-  useEffect(() => {
+  const handleSaveDisplay = () => {
     saveDisplayConfigToStorage(displayConfig);
     onDisplayConfigChange?.(displayConfig);
-  }, [displayConfig, onDisplayConfigChange]);
+    setHasDisplayChanges(false);
+  };
 
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -149,13 +145,18 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
   }, [fields]);
 
   const handleFieldUpdate = (key: string, updates: Partial<MetadataFieldConfig>) => {
-    setFields(prev => prev.map(f => f.key === key ? { ...f, ...updates } : f));
+    const newFields = fields.map(f => f.key === key ? { ...f, ...updates } : f);
+    setFields(newFields);
+    saveFieldsToStorage(newFields);
+    onFieldsChange?.(newFields);
   };
 
   const handleSaveField = () => {
     if (editingField && tempField.jsonPath) {
       handleFieldUpdate(editingField, tempField);
     }
+    saveFieldsToStorage(fields);
+    onFieldsChange?.(fields);
     setEditingField(null);
     setTempField({});
   };
@@ -169,13 +170,16 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
       return;
     }
 
-    setFields(prev => [...prev, {
+    const newFields = [...fields, {
       key,
       label: newFieldLabel,
       jsonPath: '',
       isEnabled: true,
       isCustom: true
-    }]);
+    }];
+    setFields(newFields);
+    saveFieldsToStorage(newFields);
+    onFieldsChange?.(newFields);
     
     setNewFieldKey('');
     setNewFieldLabel('');
@@ -183,24 +187,32 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
   };
 
   const handleDeleteField = (key: string) => {
-    setFields(prev => prev.filter(f => f.key !== key));
+    const newFields = fields.filter(f => f.key !== key);
+    setFields(newFields);
+    
     const newConfig = { ...displayConfig };
     Object.keys(newConfig).forEach(k => {
       newConfig[k as DisplayType] = newConfig[k as DisplayType].filter(fk => fk !== key);
     });
     setDisplayConfig(newConfig);
-    setHasChanges(true);
+    
+    saveFieldsToStorage(newFields);
+    onFieldsChange?.(newFields);
+    saveDisplayConfigToStorage(newConfig);
+    onDisplayConfigChange?.(newConfig);
   };
 
   const handleResetFields = () => {
     setFields([...DEFAULT_FIELDS]);
     setExtractedFields({});
+    saveFieldsToStorage(DEFAULT_FIELDS);
+    onFieldsChange?.(DEFAULT_FIELDS);
   };
 
   const handleResetDisplayConfig = () => {
     const newConfig = { ...DEFAULT_DISPLAY_CONFIG };
     setDisplayConfig(newConfig);
-    setHasChanges(true);
+    setHasDisplayChanges(true);
   };
 
   const handleCopyJson = () => {
@@ -220,7 +232,7 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
       newConfig[type] = [...current, fieldKey];
     }
     setDisplayConfig(newConfig);
-    setHasChanges(true);
+    setHasDisplayChanges(true);
   };
 
   const handleDisplayFieldOrder = (type: DisplayType, fieldKey: string, direction: 'up' | 'down') => {
@@ -234,7 +246,7 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
     }
     newConfig[type] = current;
     setDisplayConfig(newConfig);
-    setHasChanges(true);
+    setHasDisplayChanges(true);
   };
 
   const rawKeys = metadata ? MetadataParser.getAllRawKeys(metadata) : [];
@@ -492,18 +504,6 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
             {t('metadata.viewDoc') || '参数说明'}
           </button>
           <button
-            onClick={() => {
-              onDisplayConfigChange?.(displayConfig);
-              setHasChanges(false);
-            }}
-            className={cn(
-              "px-4 py-2 rounded-xl text-xs font-bold",
-              hasChanges ? "bg-blue-500 text-white" : "bg-slate-500/5 border"
-            )}
-          >
-            {hasChanges ? (t('metadata.saveConfig') || '保存配置') : (t('metadata.saved') || '已保存')}
-          </button>
-          <button
             onClick={() => setShowJsonPanel(!showJsonPanel)}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold", showJsonPanel ? "bg-blue-500 text-white" : "bg-slate-500/5 border")}
           >
@@ -528,6 +528,19 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
             {tab.label}
           </button>
         ))}
+        <div className="flex-1" />
+        {activeTab !== 'parse' && (
+          <button
+            onClick={handleSaveDisplay}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold",
+              hasDisplayChanges ? "bg-blue-500 text-white" : "bg-slate-500/5 border"
+            )}
+          >
+            <Save className="w-4 h-4" />
+            {hasDisplayChanges ? (t('metadata.saveConfig') || '保存配置') : (t('metadata.saved') || '已保存')}
+          </button>
+        )}
       </div>
 
       {activeTab === 'parse' ? renderParseConfig() : renderDisplayConfig(activeTab as DisplayType)}
