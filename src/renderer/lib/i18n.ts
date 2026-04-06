@@ -133,6 +133,7 @@ export const locales: Record<Language, LocaleStrings> = {
       docGrain: '颗粒效果',
       docChrome: '色彩效果',
       docRecipes: '配方推荐',
+      docJsonFields: 'JSON字段说明',
       docTips: '使用技巧',
     },
     sort: {
@@ -409,6 +410,7 @@ export const locales: Record<Language, LocaleStrings> = {
       docGrain: 'Grain Effect',
       docChrome: 'Color Chrome',
       docRecipes: 'Recipe Recommendations',
+      docJsonFields: 'JSON Field Reference',
       docTips: 'Tips & Tricks',
     },
     photoDetail: {

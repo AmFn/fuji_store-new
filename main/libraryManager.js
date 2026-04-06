@@ -340,7 +340,13 @@ export function registerLibraryIpc(ipcMain, manager) {
 
   ipcMain.handle('parse-metadata', async (_evt, filePath) => {
     try {
-      const metadata = await parseMetadata(filePath);
+      let configJson = null;
+      try {
+        configJson = await manager.db.getMetadataFields();
+      } catch (configError) {
+        console.warn('[IPC] Failed to load metadata fields for parse-metadata:', configError);
+      }
+      const metadata = await parseMetadata(filePath, configJson);
       return metadata;
     } catch (error) {
       console.error('[IPC] Error parsing metadata:', error);
@@ -372,6 +378,24 @@ export function registerLibraryIpc(ipcMain, manager) {
       return await manager.db.saveDisplayConfig(configJson);
     } catch (error) {
       console.error('[IPC] Error saving display config:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('get-metadata-fields', async () => {
+    try {
+      return await manager.db.getMetadataFields();
+    } catch (error) {
+      console.error('[IPC] Error getting metadata fields:', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle('save-metadata-fields', async (_evt, fieldsJson) => {
+    try {
+      return await manager.db.saveMetadataFields(fieldsJson);
+    } catch (error) {
+      console.error('[IPC] Error saving metadata fields:', error);
       return false;
     }
   });

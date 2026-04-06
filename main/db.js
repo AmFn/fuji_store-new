@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import Database from 'better-sqlite3';
+import { app } from 'electron';
 
 const DEFAULT_PAGE_SIZE = 120;
 const MAX_PAGE_SIZE = 1000;
@@ -81,6 +82,8 @@ function normalizePhotoRecord(photo) {
     camera_model: photo.camera_model ?? null,
     location: photo.location ?? null,
     source_type: sourceType,
+    date_time: photo.shot_at ? new Date(photo.shot_at).toISOString() : (photo.date_time || null),
+    metadata_json: photo.metadata_json ?? null,
   };
 }
 
@@ -252,6 +255,13 @@ export class PhotoDatabase {
         updated_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS metadata_fields (
+        id INTEGER PRIMARY KEY,
+        config_json TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
     `);
 
     this.#migrateLegacySchema();
@@ -267,7 +277,8 @@ export class PhotoDatabase {
         iso, aperture, shutter_speed, exposure_compensation, exposure_mode,
         metering_mode, white_balance, white_balance_mode, white_balance_temperature, white_balance_tint,
         focus_mode, focus_area, af_point, flash_fired, flash_mode,
-        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location, source_type
+        lens_model, lens_make, focal_length, focal_length_35mm, camera_model, location, source_type,
+        date_time, metadata_json
       ) VALUES (
         @path, @hash, @folder_id, @size, @width, @height, @created_at, @updated_at, @thumbnail_status, @deleted,
         @film_mode, @dynamic_range, @color_chrome, @color_chrome_blue, @color_chrome_red,
@@ -276,7 +287,8 @@ export class PhotoDatabase {
         @iso, @aperture, @shutter_speed, @exposure_compensation, @exposure_mode,
         @metering_mode, @white_balance, @white_balance_mode, @white_balance_temperature, @white_balance_tint,
         @focus_mode, @focus_area, @af_point, @flash_fired, @flash_mode,
-        @lens_model, @lens_make, @focal_length, @focal_length_35mm, @camera_model, @location, @source_type
+        @lens_model, @lens_make, @focal_length, @focal_length_35mm, @camera_model, @location, @source_type,
+        @date_time, @metadata_json
       )
       ON CONFLICT(path) DO UPDATE SET
         hash = excluded.hash,
@@ -324,7 +336,9 @@ export class PhotoDatabase {
         focal_length_35mm = excluded.focal_length_35mm,
         camera_model = excluded.camera_model,
         location = excluded.location,
-        source_type = excluded.source_type
+        source_type = excluded.source_type,
+        date_time = excluded.date_time,
+        metadata_json = excluded.metadata_json
     `);
 
     this.stmts.getPhotoByPath = this.db.prepare(`
@@ -348,13 +362,11 @@ export class PhotoDatabase {
 
     this.stmts.getPhotosSql = `
       SELECT p.id, p.path, p.hash, p.folder_id, p.size, p.width, p.height, p.created_at, p.updated_at, p.thumbnail_status, p.deleted,
-        p.film_mode, p.dynamic_range, p.color_chrome, p.color_chrome_blue, p.color_chrome_red,
-        p.grain_effect, p.grain_effect_rough, p.highlight_tone, p.shadow_tone, p.tone,
-        p.color, p.sharpness, p.clarity, p.noise_reduction, p.high_iso_noise_reduction,
-        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
-        p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
-        p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
-        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location, p.source_type,
+        p.source_type, p.date_time, p.metadata_json,
+        p.film_mode, p.white_balance, p.dynamic_range,
+        p.color_chrome, p.color_chrome_blue, p.grain_effect,
+        p.highlight_tone, p.shadow_tone, p.clarity, p.sharpness, p.noise_reduction,
+        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.camera_model,
         (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
       FROM photos p
       WHERE deleted = @deleted AND p.source_type = 'library'
@@ -451,8 +463,8 @@ export class PhotoDatabase {
 
     this.stmts.getTimelineGroupPage = this.db.prepare(`
       SELECT
-        strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key,
-        MAX(created_at) AS latest_created_at,
+        strftime('%Y-%m-%d', COALESCE(date_time, created_at / 1000, 'now') / 1000, 'unixepoch', 'localtime') AS day_key,
+        MAX(COALESCE(date_time, created_at / 1000)) AS latest_created_at,
         COUNT(*) AS photo_count
       FROM photos
       WHERE deleted = 0 AND source_type = 'library'
@@ -464,7 +476,7 @@ export class PhotoDatabase {
     this.stmts.countTimelineGroups = this.db.prepare(`
       SELECT COUNT(*) AS total
       FROM (
-        SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day_key
+        SELECT strftime('%Y-%m-%d', COALESCE(date_time, created_at / 1000, 'now') / 1000, 'unixepoch', 'localtime') AS day_key
         FROM photos
         WHERE deleted = 0 AND source_type = 'library'
         GROUP BY day_key
@@ -473,18 +485,12 @@ export class PhotoDatabase {
 
     this.stmts.getPhotosByDay = this.db.prepare(`
       SELECT p.id, p.path, p.hash, p.folder_id, p.size, p.width, p.height, p.created_at, p.updated_at, p.thumbnail_status, p.deleted,
-        p.film_mode, p.dynamic_range, p.color_chrome, p.color_chrome_blue, p.color_chrome_red,
-        p.grain_effect, p.grain_effect_rough, p.highlight_tone, p.shadow_tone, p.tone,
-        p.color, p.sharpness, p.clarity, p.noise_reduction, p.high_iso_noise_reduction,
-        p.iso, p.aperture, p.shutter_speed, p.exposure_compensation, p.exposure_mode,
-        p.metering_mode, p.white_balance, p.white_balance_mode, p.white_balance_temperature, p.white_balance_tint,
-        p.focus_mode, p.focus_area, p.af_point, p.flash_fired, p.flash_mode,
-        p.lens_model, p.lens_make, p.focal_length, p.focal_length_35mm, p.camera_model, p.location, p.source_type,
+        p.source_type, p.date_time, p.metadata_json,
         (SELECT GROUP_CONCAT(t.name, ',') FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.photo_id = p.id) AS tags
       FROM photos p
       WHERE p.deleted = 0 AND p.source_type = 'library'
-        AND strftime('%Y-%m-%d', p.created_at / 1000, 'unixepoch', 'localtime') = @dayKey
-      ORDER BY p.created_at DESC
+        AND strftime('%Y-%m-%d', COALESCE(p.date_time, p.created_at / 1000, 'now') / 1000, 'unixepoch', 'localtime') = @dayKey
+      ORDER BY COALESCE(p.date_time, p.created_at) DESC
       LIMIT @limit OFFSET @offset
     `);
 
@@ -492,7 +498,7 @@ export class PhotoDatabase {
       SELECT COUNT(*) AS total
       FROM photos
       WHERE deleted = 0 AND source_type = 'library'
-        AND strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') = ?
+        AND strftime('%Y-%m-%d', COALESCE(date_time, created_at / 1000, 'now') / 1000, 'unixepoch', 'localtime') = ?
     `);
 
     this.stmts.insertFolder = this.db.prepare(`
@@ -826,6 +832,9 @@ export class PhotoDatabase {
     if (!photoSet.has('metadata_json')) {
       this.db.exec("ALTER TABLE photos ADD COLUMN metadata_json TEXT DEFAULT '{}'");
     }
+    if (!photoSet.has('date_time')) {
+      this.db.exec("ALTER TABLE photos ADD COLUMN date_time TEXT");
+    }
     if (!photoSet.has('is_favorite')) {
       this.db.exec('ALTER TABLE photos ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0');
     }
@@ -846,6 +855,7 @@ export class PhotoDatabase {
     }
     if (!photoSet.has('source_type')) {
       this.db.exec("ALTER TABLE photos ADD COLUMN source_type TEXT NOT NULL DEFAULT 'library'");
+      this.db.exec("ALTER TABLE photos ADD COLUMN date_time TEXT");
       if (photoSet.has('is_recipe_display')) {
         this.db.exec("UPDATE photos SET source_type = CASE WHEN COALESCE(is_recipe_display, 0) = 1 THEN 'recipe_display' ELSE 'library' END");
       } else {
@@ -932,6 +942,12 @@ export class PhotoDatabase {
         this.db.exec(`ALTER TABLE folders ADD COLUMN updated_at INTEGER NOT NULL DEFAULT ${Date.now()}`);
       }
     }
+
+    const mappingCols = this.db.prepare("PRAGMA table_info(metadata_mapping_configs)").all();
+    const mappingSet = new Set(mappingCols.map((c) => c.name));
+    if (mappingSet.size > 0 && !mappingSet.has('value_map_json')) {
+      this.db.exec("ALTER TABLE metadata_mapping_configs ADD COLUMN value_map_json TEXT NOT NULL DEFAULT '{}'");
+    }
   }
 
   #migrateTagsFromJson() {
@@ -994,6 +1010,57 @@ export class PhotoDatabase {
     
     migrate();
     console.log(`[DB] Migrated tags from ${photos.length} photos`);
+    
+    const cleanupKey = 'cleanup_old_fields';
+    const cleanupDone = this.db.prepare("SELECT value FROM schema_flags WHERE key = ?").get(cleanupKey);
+    if (!cleanupDone) {
+      console.log('[DB] Cleaning up old EXIF fields...');
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS photos_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL UNIQUE,
+            hash TEXT NOT NULL,
+            folder_id INTEGER,
+            size INTEGER NOT NULL,
+            width INTEGER NOT NULL DEFAULT 0,
+            height INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            thumbnail_status TEXT NOT NULL DEFAULT 'pending',
+            deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+            source_type TEXT NOT NULL DEFAULT 'library' CHECK (source_type IN ('library', 'recipe_display')),
+            date_time TEXT,
+            metadata_json TEXT,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            is_hidden INTEGER NOT NULL DEFAULT 0,
+            rating INTEGER NOT NULL DEFAULT 0
+          )
+        `);
+        
+        this.db.exec(`
+          INSERT INTO photos_new (
+            id, path, hash, folder_id, size, width, height, created_at, updated_at,
+            thumbnail_status, deleted, source_type, date_time, metadata_json, tags_json, 
+            is_favorite, is_hidden, rating
+          )
+          SELECT 
+            id, path, hash, folder_id, size, width, height, created_at, updated_at,
+            thumbnail_status, deleted, source_type, date_time, metadata_json, tags_json, 
+            is_favorite, is_hidden, rating
+          FROM photos
+        `);
+        
+        this.db.exec('DROP TABLE IF EXISTS photos');
+        this.db.exec('ALTER TABLE photos_new RENAME TO photos');
+        
+        this.db.prepare("INSERT OR REPLACE INTO schema_flags (key, value) VALUES (?, 1)").run(cleanupKey);
+        console.log('[DB] Old EXIF fields cleaned up successfully');
+      } catch (e) {
+        console.error('[DB] Error cleaning up old fields:', e);
+      }
+    }
   }
 
   async upsertPhoto(photo) {
@@ -1319,6 +1386,12 @@ export class PhotoDatabase {
       parts.push('metadata_json = @metadata_json');
       params.metadata_json = typeof patch.metadataJson === 'string' ? patch.metadataJson : JSON.stringify(patch.metadataJson);
     }
+
+    if (patch.dateTime !== undefined) {
+      parts.push('date_time = @date_time');
+      params.date_time = patch.dateTime;
+    }
+
     if (patch.folderId !== undefined || patch.folder_id !== undefined) {
       const folderIdRaw = patch.folder_id ?? patch.folderId;
       const folderId = folderIdRaw === null || folderIdRaw === '' ? null : Number(folderIdRaw);
@@ -1634,22 +1707,22 @@ export class PhotoDatabase {
     return this.db.prepare('SELECT * FROM metadata_mapping_configs WHERE field_name = ?').get(fieldName);
   }
 
-  async upsertMappingConfig(fieldName, jsonPath, name = '') {
+  async upsertMappingConfig(fieldName, jsonPath, name = '', valueMapJson = '{}') {
     const now = Date.now();
     const existing = this.getMappingConfigByField(fieldName);
     
     if (existing) {
       this.db.prepare(`
         UPDATE metadata_mapping_configs 
-        SET json_path = ?, name = ?, updated_at = ?
+        SET json_path = ?, name = ?, value_map_json = ?, updated_at = ?
         WHERE field_name = ?
-      `).run(jsonPath, name, now, fieldName);
+      `).run(jsonPath, name, valueMapJson, now, fieldName);
       return this.getMappingConfigByField(fieldName);
     } else {
       this.db.prepare(`
-        INSERT INTO metadata_mapping_configs (name, field_name, json_path, is_enabled, created_at, updated_at)
-        VALUES (?, ?, ?, 1, ?, ?)
-      `).run(name || fieldName, fieldName, jsonPath, now, now);
+        INSERT INTO metadata_mapping_configs (name, field_name, json_path, is_enabled, value_map_json, created_at, updated_at)
+        VALUES (?, ?, ?, 1, ?, ?, ?)
+      `).run(name || fieldName, fieldName, jsonPath, valueMapJson, now, now);
       return this.getMappingConfigByField(fieldName);
     }
   }
@@ -1722,9 +1795,83 @@ export class PhotoDatabase {
     return true;
   }
 
+  async getMetadataFields() {
+    const row = this.db.prepare('SELECT config_json FROM metadata_fields WHERE id = 1').get();
+    if (row && row.config_json) {
+      try {
+        return JSON.parse(row.config_json);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async saveMetadataFields(configJson) {
+    console.log('[DB] saveMetadataFields called with:', typeof configJson, Array.isArray(configJson) ? configJson.length : '');
+    let fields = [];
+    if (typeof configJson === 'string') {
+      try {
+        const parsed = JSON.parse(configJson);
+        fields = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        fields = [];
+      }
+    } else if (Array.isArray(configJson)) {
+      fields = configJson;
+    }
+
+    const configStr = JSON.stringify(fields);
+    const now = Date.now();
+    const existing = this.db.prepare('SELECT id FROM metadata_fields WHERE id = 1').get();
+    console.log('[DB] existing record:', existing);
+
+    const write = this.db.transaction(() => {
+      if (existing) {
+        this.db.prepare('UPDATE metadata_fields SET config_json = ?, updated_at = ? WHERE id = 1').run(configStr, now);
+      } else {
+        this.db.prepare('INSERT INTO metadata_fields (id, config_json, created_at, updated_at) VALUES (1, ?, ?, ?)').run(configStr, now, now);
+      }
+
+      // 同步到 metadata_mapping_configs，便于按行查看每个字段配置
+      this.db.prepare('DELETE FROM metadata_mapping_configs').run();
+      const insertStmt = this.db.prepare(`
+        INSERT INTO metadata_mapping_configs (name, field_name, json_path, is_enabled, value_map_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const field of fields) {
+        if (!field?.key) continue;
+        insertStmt.run(
+          field.label || field.key,
+          field.key,
+          field.jsonPath || '',
+          field.isEnabled ? 1 : 0,
+          JSON.stringify(field.valueMap || {}),
+          now,
+          now
+        );
+      }
+    });
+    write();
+
+    console.log('[DB] saveMetadataFields completed');
+    return true;
+  }
+
   close() {
     this.db.close();
   }
+}
+
+let dbInstance = null;
+
+export async function getDb() {
+  if (!dbInstance) {
+    const dbPath = path.join(app.getPath('userData'), 'library.db');
+    dbInstance = new PhotoDatabase(dbPath);
+    await dbInstance.init();
+  }
+  return dbInstance;
 }
 
 export { normalizePath };

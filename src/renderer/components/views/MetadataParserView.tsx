@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, X, ChevronDown, Copy, RefreshCw, Check, ArrowLeft, Plus, Trash2, Eye, Image, FileText, Settings, BookOpen, Save } from 'lucide-react';
+import { Upload, X, ChevronDown, Copy, RefreshCw, Check, ArrowLeft, Plus, Trash2, Eye, Image, FileText, Settings, BookOpen, Save, Download } from 'lucide-react';
 import { MetadataParser, MetadataFieldConfig, MetadataDisplayConfig, ParsedMetadata, DisplayType } from '../../utils/metadataParser';
 import { cn } from '../../lib/utils';
 import { useLanguage } from '../../hooks/useLanguage';
 import { DocumentationModal } from '../modals/DocumentationModal';
+import defaultConfig from '../../constants/metadata-default-config.json';
 
 interface MetadataParserViewProps {
   onBack?: () => void;
@@ -13,8 +14,21 @@ interface MetadataParserViewProps {
 
 const DEFAULT_FIELDS: MetadataFieldConfig[] = [
   { key: 'filmSimulation', label: '胶片模拟', labelKey: 'metadata.filmSimulation', jsonPath: 'FilmMode', isEnabled: true, isCustom: false },
-  { key: 'whiteBalance', label: '白平衡', labelKey: 'metadata.whiteBalance', jsonPath: 'WhiteBalance', isEnabled: true, isCustom: false },
-  { key: 'whiteBalanceShift', label: '白平衡偏移', labelKey: 'metadata.whiteBalanceShift', jsonPath: 'WBShift', isEnabled: true, isCustom: false },
+  { key: 'whiteBalance', label: '白平衡', labelKey: 'metadata.whiteBalance', jsonPath: 'WhiteBalance', isEnabled: true, isCustom: false, valueMap: {
+    'Auto (ambiance priority)': '自动',
+    'Auto (white priority)': '自动(W)',
+    'Daylight': '日光',
+    'Cloudy': '阴天',
+    'Shade': '阴影',
+    'Fluorescent (Daylight)': '荧光灯(日光)',
+    'Fluorescent (Warm White)': '荧光灯(暖白)',
+    'Fluorescent (Cool White)': '荧光灯(冷白)',
+    'Incandescent': '白炽灯',
+    'Kelvin': '开尔文'
+  }},
+  { key: 'whiteBalanceShiftR', label: '白平衡红色偏移', labelKey: 'metadata.whiteBalanceShiftR', jsonPath: 'WBShiftR', isEnabled: false, isCustom: false },
+  { key: 'whiteBalanceShiftB', label: '白平衡蓝色偏移', labelKey: 'metadata.whiteBalanceShiftB', jsonPath: 'WBShiftB', isEnabled: false, isCustom: false },
+  { key: 'whiteBalanceShift', label: '白平衡偏移', labelKey: 'metadata.whiteBalanceShift', jsonPath: 'WBShift', isEnabled: true, isCustom: false, isCombined: true, combinedFields: ['whiteBalanceShiftR', 'whiteBalanceShiftB'] },
   { key: 'dynamicRange', label: '动态范围', labelKey: 'metadata.dynamicRange', jsonPath: 'DynamicRange', isEnabled: true, isCustom: false },
   { key: 'sharpness', label: '锐度', labelKey: 'metadata.sharpness', jsonPath: 'Sharpness', isEnabled: true, isCustom: false },
   { key: 'saturation', label: '饱和度', labelKey: 'metadata.saturation', jsonPath: 'Saturation', isEnabled: true, isCustom: false },
@@ -37,6 +51,32 @@ const DEFAULT_DISPLAY_CONFIG: Record<DisplayType, string[]> = {
 
 const STORAGE_KEY = 'fuji_metadata_fields';
 const DISPLAY_CONFIG_KEY = 'fuji_metadata_display_config';
+type ValueMapRow = { id: string; from: string; to: string };
+
+async function loadFieldsFromDatabase(): Promise<MetadataFieldConfig[]> {
+  try {
+    if (window.electronAPI?.getMetadataFields) {
+      const dbFields = await window.electronAPI.getMetadataFields();
+      if (dbFields && Array.isArray(dbFields) && dbFields.length > 0) {
+        const defaultKeys = new Set(DEFAULT_FIELDS.map(f => f.key));
+        return [
+          ...DEFAULT_FIELDS.map(df => {
+            const existing = dbFields.find((sf: MetadataFieldConfig) => sf.key === df.key);
+            return existing ? { ...df, ...existing } : df;
+          }),
+          ...dbFields.filter((sf: MetadataFieldConfig) => !defaultKeys.has(sf.key))
+        ];
+      }
+    }
+  } catch (error) {
+    console.error('[MetadataParserView] Error loading fields from database:', error);
+  }
+  // 如果数据库为空，使用默认配置
+  if (defaultConfig.fields && Array.isArray(defaultConfig.fields)) {
+    return defaultConfig.fields;
+  }
+  return null;
+}
 
 function loadFieldsFromStorage(): MetadataFieldConfig[] {
   try {
@@ -60,11 +100,21 @@ function loadFieldsFromStorage(): MetadataFieldConfig[] {
   return [...DEFAULT_FIELDS];
 }
 
-function saveFieldsToStorage(fields: MetadataFieldConfig[]) {
+async function saveFieldsToDatabase(fields: MetadataFieldConfig[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fields));
+    if (window.electronAPI?.saveMetadataFields) {
+      const result = await window.electronAPI.saveMetadataFields(fields);
+      console.log('[MetadataParserView] Save result:', result);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fields));
+      return result;
+    } else {
+      console.warn('[MetadataParserView] saveMetadataFields API not available');
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fields));
+      return false;
+    }
   } catch (error) {
-    console.error('[MetadataParserView] Error saving fields:', error);
+    console.error('[MetadataParserView] Error saving fields to database:', error);
+    return false;
   }
 }
 
@@ -101,8 +151,9 @@ function getDisplayTypeLabel(type: DisplayType, t: (key: string) => string): str
 export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChange }: MetadataParserViewProps) {
   const { t } = useLanguage();
   const [metadata, setMetadata] = useState<ParsedMetadata | null>(null);
-  const [fields, setFields] = useState<MetadataFieldConfig[]>(loadFieldsFromStorage);
+  const [fields, setFields] = useState<MetadataFieldConfig[]>([]);
   const [displayConfig, setDisplayConfig] = useState<Record<DisplayType, string[]>>(loadDisplayConfigFromStorage);
+  const [fieldsLoaded, setFieldsLoaded] = useState(false);
   const [showJsonPanel, setShowJsonPanel] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [tempField, setTempField] = useState<Partial<MetadataFieldConfig>>({});
@@ -115,6 +166,104 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
   const [displayEditing, setDisplayEditing] = useState<DisplayType | null>(null);
   const [showDocModal, setShowDocModal] = useState(false);
   const [hasDisplayChanges, setHasDisplayChanges] = useState(false);
+  const [editingMode, setEditingMode] = useState<'jsonPath' | 'combined'>('jsonPath');
+  const [showValueMapModal, setShowValueMapModal] = useState(false);
+  const [valueMapEditor, setValueMapEditor] = useState<{
+    fieldKey?: string;
+    jsonPath: string;
+    displayName: string;
+    rows: ValueMapRow[];
+  } | null>(null);
+  const [draggedKey, setDraggedKey] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; fieldKey: string; fieldValue: string } | null>(null);
+
+  const createValueMapRow = (from: string = '', to: string = ''): ValueMapRow => ({
+    id: `vm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    from,
+    to
+  });
+
+  const valueMapToRows = (valueMap?: Record<string, string>, preferredFrom?: string): ValueMapRow[] => {
+    const rows = Object.entries(valueMap || {}).map(([from, to]) => createValueMapRow(from, to));
+    if (preferredFrom && !rows.some(row => row.from === preferredFrom)) {
+      rows.unshift(createValueMapRow(preferredFrom, ''));
+    }
+    return rows.length > 0 ? rows : [createValueMapRow(preferredFrom || '', '')];
+  };
+
+  const rowsToValueMap = (rows: ValueMapRow[]): Record<string, string> => {
+    const map: Record<string, string> = {};
+    rows.forEach((row) => {
+      const from = row.from.trim();
+      const to = row.to.trim();
+      if (from && to) {
+        map[from] = to;
+      }
+    });
+    return map;
+  };
+
+  const persistFields = (newFields: MetadataFieldConfig[]) => {
+    setFields(newFields);
+    saveFieldsToDatabase(newFields);
+    onFieldsChange?.(newFields);
+  };
+
+  const buildFieldKeyFromJsonPath = (jsonPath: string, existingFields: MetadataFieldConfig[]): string => {
+    const normalized = jsonPath.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'json_path';
+    const base = `jsonpath_${normalized}`.slice(0, 60);
+    let key = base;
+    let suffix = 1;
+    const keySet = new Set(existingFields.map(field => field.key));
+    while (keySet.has(key)) {
+      key = `${base}_${suffix++}`;
+    }
+    return key;
+  };
+
+  const handleDragStart = (e: React.DragEvent, key: string) => {
+    setDraggedKey(key);
+    e.dataTransfer.setData('text/plain', key);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleDragEnd = () => {
+    setDraggedKey(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const key = e.dataTransfer.getData('text/plain');
+    if (key && editingField) {
+      setTempField(prev => ({ ...prev, jsonPath: key }));
+    }
+    setDraggedKey(null);
+  };
+
+  useEffect(() => {
+    const initFields = async () => {
+      const dbFields = await loadFieldsFromDatabase();
+      if (dbFields) {
+        setFields(dbFields);
+        onFieldsChange?.(dbFields);
+      } else {
+        const localFields = loadFieldsFromStorage();
+        setFields(localFields);
+        onFieldsChange?.(localFields);
+        // 如果本地也没有，使用默认配置并保存到数据库
+        if (defaultConfig.fields && Array.isArray(defaultConfig.fields)) {
+          await saveFieldsToDatabase(defaultConfig.fields);
+        }
+      }
+      setFieldsLoaded(true);
+    };
+    initFields();
+  }, []);
 
   const handleSaveDisplay = () => {
     saveDisplayConfigToStorage(displayConfig);
@@ -122,22 +271,22 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
     setHasDisplayChanges(false);
   };
 
-  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = useCallback(async () => {
+    if (!window.electronAPI?.pickFiles) {
+      console.error('pickFiles API not available');
+      return;
+    }
 
     try {
-      const filePath = (file as any).path || file.name;
+      const picked = await window.electronAPI.pickFiles();
+      if (!picked || picked.length === 0) return;
+
+      const filePath = picked[0];
       const parsed = await MetadataParser.parseFile(filePath);
       setMetadata(parsed);
       setShowJsonPanel(true);
 
-      const mappingConfig: Record<string, string> = {};
-      fields.filter(f => f.isEnabled).forEach(f => {
-        mappingConfig[f.key] = f.jsonPath;
-      });
-
-      const extracted = MetadataParser.extractFieldsFromConfig(parsed, mappingConfig);
+      const extracted = MetadataParser.extractFields(parsed, fields);
       setExtractedFields(extracted);
     } catch (error) {
       console.error('Error parsing file:', error);
@@ -145,20 +294,75 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
   }, [fields]);
 
   const handleFieldUpdate = (key: string, updates: Partial<MetadataFieldConfig>) => {
+    console.log('[MetadataParserView] handleFieldUpdate called for:', key, updates);
     const newFields = fields.map(f => f.key === key ? { ...f, ...updates } : f);
-    setFields(newFields);
-    saveFieldsToStorage(newFields);
-    onFieldsChange?.(newFields);
+    persistFields(newFields);
+    console.log('[MetadataParserView] Saving fields to database, count:', newFields.length);
   };
 
   const handleSaveField = () => {
-    if (editingField && tempField.jsonPath) {
-      handleFieldUpdate(editingField, tempField);
+    if (editingField) {
+      const updates: Partial<MetadataFieldConfig> = {
+        label: tempField.label,
+        jsonPath: tempField.jsonPath,
+        combinedFields: tempField.combinedFields,
+        isCombined: tempField.isCombined || (tempField.combinedFields && tempField.combinedFields.length > 0)
+      };
+      handleFieldUpdate(editingField, updates);
     }
-    saveFieldsToStorage(fields);
-    onFieldsChange?.(fields);
     setEditingField(null);
     setTempField({});
+  };
+
+  const openValueMapEditor = (target: { fieldKey?: string; jsonPath: string; displayName: string; valueMap?: Record<string, string> }, preferredFrom?: string) => {
+    setValueMapEditor({
+      fieldKey: target.fieldKey,
+      jsonPath: target.jsonPath,
+      displayName: target.displayName,
+      rows: valueMapToRows(target.valueMap, preferredFrom)
+    });
+    setShowValueMapModal(true);
+  };
+
+  const handleSaveValueMap = () => {
+    if (!valueMapEditor) return;
+    const jsonPath = valueMapEditor.jsonPath.trim();
+    if (!jsonPath) {
+      alert('请先填写字段 JSON Path');
+      return;
+    }
+
+    const mapped = rowsToValueMap(valueMapEditor.rows);
+    const existingByKey = valueMapEditor.fieldKey ? fields.find(f => f.key === valueMapEditor.fieldKey) : null;
+    const existingByPath = fields.find(f => f.jsonPath === jsonPath);
+    const existingField = existingByKey || existingByPath;
+
+    let newFields: MetadataFieldConfig[];
+    if (existingField) {
+      newFields = fields.map(field => {
+        if (field.key !== existingField.key) return field;
+        return {
+          ...field,
+          jsonPath,
+          valueMap: mapped
+        };
+      });
+    } else {
+      const key = buildFieldKeyFromJsonPath(jsonPath, fields);
+      const newField: MetadataFieldConfig = {
+        key,
+        label: valueMapEditor.displayName || jsonPath,
+        jsonPath,
+        isEnabled: false,
+        isCustom: true,
+        valueMap: mapped
+      };
+      newFields = [...fields, newField];
+    }
+
+    persistFields(newFields);
+    setShowValueMapModal(false);
+    setValueMapEditor(null);
   };
 
   const handleAddField = () => {
@@ -177,9 +381,7 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
       isEnabled: true,
       isCustom: true
     }];
-    setFields(newFields);
-    saveFieldsToStorage(newFields);
-    onFieldsChange?.(newFields);
+    persistFields(newFields);
     
     setNewFieldKey('');
     setNewFieldLabel('');
@@ -188,7 +390,7 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
 
   const handleDeleteField = (key: string) => {
     const newFields = fields.filter(f => f.key !== key);
-    setFields(newFields);
+    persistFields(newFields);
     
     const newConfig = { ...displayConfig };
     Object.keys(newConfig).forEach(k => {
@@ -196,17 +398,13 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
     });
     setDisplayConfig(newConfig);
     
-    saveFieldsToStorage(newFields);
-    onFieldsChange?.(newFields);
     saveDisplayConfigToStorage(newConfig);
     onDisplayConfigChange?.(newConfig);
   };
 
   const handleResetFields = () => {
-    setFields([...DEFAULT_FIELDS]);
+    persistFields([...DEFAULT_FIELDS]);
     setExtractedFields({});
-    saveFieldsToStorage(DEFAULT_FIELDS);
-    onFieldsChange?.(DEFAULT_FIELDS);
   };
 
   const handleResetDisplayConfig = () => {
@@ -251,12 +449,37 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
 
   const rawKeys = metadata ? MetadataParser.getAllRawKeys(metadata) : [];
   const enabledFields = fields.filter(f => f.isEnabled);
+  const rawKeySet = new Set(rawKeys);
+  const existingJsonPathSet = new Set(fields.map(field => field.jsonPath).filter(Boolean));
+  const extraRawTargets = Array.from(rawKeySet)
+    .filter(path => !existingJsonPathSet.has(path))
+    .map(path => ({
+      id: `raw:${path}`,
+      fieldKey: undefined as string | undefined,
+      jsonPath: path,
+      displayName: path,
+      valueMap: undefined as Record<string, string> | undefined
+    }));
+  const valueMapTargets = [
+    ...fields.map(field => ({
+      id: `field:${field.key}`,
+      fieldKey: field.key,
+      jsonPath: field.jsonPath || '',
+      displayName: field.labelKey && t(field.labelKey) !== field.labelKey ? t(field.labelKey) : field.label,
+      valueMap: field.valueMap
+    })),
+    ...extraRawTargets
+  ];
+  const fieldsWithValueMap = valueMapTargets.filter(target => target.valueMap && Object.keys(target.valueMap).length > 0);
 
   const getFieldLabel = (field: MetadataFieldConfig): string => {
+    if (field.label && field.label.trim()) {
+      return field.label;
+    }
     if (field.labelKey && t(field.labelKey) !== field.labelKey) {
       return t(field.labelKey);
     }
-    return field.label;
+    return field.key;
   };
 
   const tabs = [
@@ -272,13 +495,7 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <div className="flex-shrink-0">
           {!metadata ? (
-            <div className="border-2 border-dashed border-[var(--border-color)] rounded-3xl p-12 flex flex-col items-center justify-center text-center hover:border-blue-500/30 hover:bg-blue-500/5 transition-all cursor-pointer relative">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-              />
+            <div className="border-2 border-dashed border-[var(--border-color)] rounded-3xl p-12 flex flex-col items-center justify-center text-center hover:border-blue-500/30 hover:bg-blue-500/5 transition-all cursor-pointer" onClick={handleFileUpload}>
               <Upload className="w-12 h-12 text-slate-400 mb-4" />
               <p className="text-lg font-bold mb-2">点击或拖拽上传图片</p>
               <p className="text-xs text-slate-400">支持 JPG, PNG, HEIC, RAF 等格式</p>
@@ -300,7 +517,16 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
                   {enabledFields.map((field) => {
                     const value = extractedFields[field.key] || '-';
                     return (
-                      <div key={field.key} className="bg-white/50 dark:bg-black/20 rounded-lg p-2">
+                      <div 
+                        key={field.key} 
+                        className="bg-white/50 dark:bg-black/20 rounded-lg p-2 cursor-pointer hover:bg-blue-500/10"
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          if (value && value !== '-') {
+                            setContextMenu({ x: e.clientX, y: e.clientY, fieldKey: field.key, fieldValue: value });
+                          }
+                        }}
+                      >
                         <span className="text-[8px] uppercase text-slate-400 block">{getFieldLabel(field)}</span>
                         <span className="text-xs font-bold truncate">{value}</span>
                       </div>
@@ -318,6 +544,9 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
         <div className="flex-1 min-h-0 overflow-y-auto mt-6 custom-scrollbar">
           <div className="bg-slate-500/5 rounded-2xl p-4">
             <h3 className="text-sm font-bold mb-4">{t('metadata.fieldMapping') || '字段映射配置'}</h3>
+            {!fieldsLoaded ? (
+              <div className="text-center py-8 text-slate-400">加载中...</div>
+            ) : (
             <div className="space-y-2">
               {fields.map((field) => (
                 <div key={field.key} className="flex items-center gap-3">
@@ -337,30 +566,125 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
                   </div>
                   <div className="flex-1 relative">
                     {editingField === field.key ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={tempField.jsonPath || ''}
-                          onChange={(e) => setTempField({ ...tempField, jsonPath: e.target.value })}
-                          placeholder="输入JSON路径"
-                          className="flex-1 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs font-mono focus:outline-none focus:border-blue-500"
-                          autoFocus
-                        />
-                        <button onClick={handleSaveField} className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setEditingField(null)} className="p-2 bg-slate-500/10 rounded-lg">
-                          <X className="w-4 h-4" />
-                        </button>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 bg-slate-500/10 rounded-lg p-1">
+                          <button
+                            onClick={() => setEditingMode('jsonPath')}
+                            className={cn("flex-1 px-2 py-1.5 rounded-md text-xs font-bold transition-all", editingMode === 'jsonPath' ? "bg-white dark:bg-slate-800 shadow-sm" : "text-slate-400")}
+                          >
+                            JSON路径
+                          </button>
+                          <button
+                            onClick={() => setEditingMode('combined')}
+                            className={cn("flex-1 px-2 py-1.5 rounded-md text-xs font-bold transition-all", editingMode === 'combined' ? "bg-white dark:bg-slate-800 shadow-sm" : "text-slate-400")}
+                          >
+                            组合
+                          </button>
+                        </div>
+                        
+                        {editingMode === 'jsonPath' && (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={tempField.label || ''}
+                              onChange={(e) => setTempField({ ...tempField, label: e.target.value })}
+                              placeholder="字段显示名称"
+                              className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs focus:outline-none focus:border-blue-500"
+                            />
+                            <div 
+                              className={cn(
+                                "flex items-center gap-2 rounded-lg border-2 transition-all",
+                                draggedKey ? "border-blue-500 border-dashed bg-blue-500/5" : "border-transparent"
+                              )}
+                              onDragOver={handleDragOver}
+                              onDrop={handleDrop}
+                            >
+                              <input
+                                type="text"
+                                value={tempField.jsonPath || ''}
+                                onChange={(e) => setTempField({ ...tempField, jsonPath: e.target.value })}
+                                placeholder={draggedKey ? "拖放字段到此处" : "输入JSON路径，如: WhiteBalance"}
+                                className={cn(
+                                  "flex-1 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border text-xs font-mono focus:outline-none transition-all",
+                                  draggedKey 
+                                    ? "border-blue-500 bg-blue-500/5" 
+                                    : "border-[var(--border-color)] focus:border-blue-500"
+                                )}
+                                autoFocus
+                              />
+                              <button onClick={handleSaveField} className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => { setEditingField(null); setTempField({}); }} className="p-2 bg-slate-500/10 rounded-lg">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {editingMode === 'combined' && (
+                          <div className="space-y-2">
+                            <div className="text-xs text-slate-400 mb-1">选择要组合的字段（子字段需先单独配置 JSON 路径）</div>
+                            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                              {fields.filter(f => f.key !== field.key).map(subField => (
+                                <label
+                                  key={subField.key}
+                                  className={cn(
+                                    "flex items-center gap-1 px-2 py-1 rounded-md text-xs cursor-pointer transition-all",
+                                    tempField.combinedFields?.includes(subField.key) 
+                                      ? "bg-blue-500/20 text-blue-500 border border-blue-500/30" 
+                                      : "bg-slate-500/5 text-slate-400 border border-transparent"
+                                  )}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={tempField.combinedFields?.includes(subField.key) || false}
+                                    onChange={(e) => {
+                                      const current = tempField.combinedFields || [];
+                                      if (e.target.checked) {
+                                        setTempField({ ...tempField, combinedFields: [...current, subField.key] });
+                                      } else {
+                                        setTempField({ ...tempField, combinedFields: current.filter((k: string) => k !== subField.key) });
+                                      }
+                                    }}
+                                    className="hidden"
+                                  />
+                                  {getFieldLabel(subField)}
+                                </label>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={handleSaveField} className="flex-1 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-xs font-bold">
+                                保存组合
+                              </button>
+                              <button onClick={() => { setEditingField(null); setTempField({}); }} className="px-3 py-2 bg-slate-500/10 rounded-lg">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => { setEditingField(field.key); setTempField({ jsonPath: field.jsonPath, label: field.label }); }}
+                          onClick={() => { 
+                            setEditingField(field.key); 
+                            setTempField({ 
+                              jsonPath: field.jsonPath, 
+                              label: field.label,
+                              combinedFields: field.combinedFields,
+                              isCombined: field.isCombined
+                            }); 
+                          }}
                           className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] hover:border-blue-500/30"
                         >
                           <span className="text-xs font-mono truncate">{field.jsonPath || '点击配置'}</span>
-                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                          <div className="flex items-center gap-1">
+                            {field.isCombined && (
+                              <span className="text-[8px] px-1.5 py-0.5 bg-purple-500/20 text-purple-500 rounded">组合</span>
+                            )}
+                            <ChevronDown className="w-4 h-4 text-slate-400" />
+                          </div>
                         </button>
                         {field.isCustom && (
                           <button onClick={() => handleDeleteField(field.key)} className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg">
@@ -372,6 +696,49 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
                   </div>
                 </div>
               ))}
+            </div>
+            )}
+          </div>
+
+          <div className="bg-slate-500/5 rounded-2xl p-4 mt-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold">值映射列表</h3>
+              <span className="text-[10px] text-slate-400">
+                已配置 {fieldsWithValueMap.length}/{valueMapTargets.length}
+              </span>
+            </div>
+            <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar">
+              {valueMapTargets.map((target) => {
+                const hasMap = !!target.valueMap && Object.keys(target.valueMap).length > 0;
+                const hasMappedField = !!target.fieldKey;
+                return (
+                  <div key={`valuemap-${target.id}`} className="p-3 rounded-xl bg-white/50 dark:bg-black/20 border border-transparent hover:border-slate-500/20">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs font-bold truncate">{target.displayName}</span>
+                        {!hasMappedField && (
+                          <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">仅JSON路径</span>
+                        )}
+                        <span className={cn(
+                          "text-[8px] px-1.5 py-0.5 rounded",
+                          hasMap ? "bg-green-500/20 text-green-500" : "bg-slate-500/10 text-slate-400"
+                        )}>
+                          {hasMap ? `${Object.keys(target.valueMap || {}).length} 条` : '未配置'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => openValueMapEditor(target)}
+                        className="px-2.5 py-1.5 text-[10px] font-bold rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
+                      >
+                        编辑映射
+                      </button>
+                    </div>
+                    <div className="mt-2 text-[10px] font-mono text-slate-400 truncate">
+                      {target.jsonPath || '未设置 JSON Path'}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -393,13 +760,19 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
           </div>
           {rawKeys.length > 0 && (
             <div className="mt-4">
-              <h4 className="text-xs font-bold mb-2">可用字段 ({rawKeys.length})</h4>
+              <h4 className="text-xs font-bold mb-2">可用字段 ({rawKeys.length}) <span className="text-slate-400 font-normal text-[10px]">拖拽到输入框</span></h4>
               <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
                 {rawKeys.slice(0, 50).map((key) => (
                   <button
                     key={key}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, key)}
+                    onDragEnd={handleDragEnd}
                     onClick={() => editingField && setTempField(prev => ({ ...prev, jsonPath: key }))}
-                    className="px-2 py-1 rounded-md bg-slate-500/10 text-[8px] font-mono hover:bg-blue-500/10 truncate max-w-[150px]"
+                    className={cn(
+                      "px-2 py-1 rounded-md bg-slate-500/10 text-[8px] font-mono hover:bg-blue-500/10 truncate max-w-[150px] cursor-grab active:cursor-grabbing transition-all",
+                      draggedKey === key && "opacity-50 scale-95"
+                    )}
                   >
                     {key}
                   </button>
@@ -473,6 +846,138 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
 
   return (
     <div className="h-full flex flex-col">
+      {contextMenu && (
+        <div 
+          className="fixed inset-0 z-50"
+          onClick={() => setContextMenu(null)}
+        >
+          <div 
+            className="absolute bg-slate-800 border border-slate-600 rounded-lg shadow-xl py-1 min-w-[160px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="w-full px-4 py-2 text-left text-xs hover:bg-slate-700 text-white"
+              onClick={() => {
+                const field = fields.find(f => f.key === contextMenu.fieldKey);
+                if (field) {
+                  openValueMapEditor(
+                    {
+                      fieldKey: field.key,
+                      jsonPath: field.jsonPath || field.key,
+                      displayName: getFieldLabel(field),
+                      valueMap: field.valueMap
+                    },
+                    contextMenu.fieldValue
+                  );
+                }
+                setContextMenu(null);
+              }}
+            >
+              添加值映射
+            </button>
+            <button
+              className="w-full px-4 py-2 text-left text-xs hover:bg-slate-700 text-white"
+              onClick={() => {
+                navigator.clipboard.writeText(contextMenu.fieldValue);
+                setContextMenu(null);
+              }}
+            >
+              复制值
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showValueMapModal && valueMapEditor && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-[var(--border-color)] bg-[var(--bg-primary)] p-5">
+            <h3 className="text-sm font-bold mb-4">编辑值映射</h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-slate-400 mb-1">字段 JSON Path</p>
+                <input
+                  type="text"
+                  value={valueMapEditor.jsonPath}
+                  onChange={(e) => setValueMapEditor(prev => prev ? { ...prev, jsonPath: e.target.value } : prev)}
+                  placeholder="如: WhiteBalance 或 EXIF.WhiteBalance"
+                  className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="rounded-xl border border-[var(--border-color)] p-3 bg-slate-500/5">
+                <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-2">
+                  <span className="text-[10px] text-slate-400">原值</span>
+                  <span className="text-[10px] text-slate-400">映射值</span>
+                  <span />
+                </div>
+                <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                  {valueMapEditor.rows.map((row) => (
+                    <div key={row.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <input
+                        type="text"
+                        value={row.from}
+                        onChange={(e) => setValueMapEditor(prev => prev ? {
+                          ...prev,
+                          rows: prev.rows.map(r => r.id === row.id ? { ...r, from: e.target.value } : r)
+                        } : prev)}
+                        placeholder="原值"
+                        className="px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs font-mono focus:outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="text"
+                        value={row.to}
+                        onChange={(e) => setValueMapEditor(prev => prev ? {
+                          ...prev,
+                          rows: prev.rows.map(r => r.id === row.id ? { ...r, to: e.target.value } : r)
+                        } : prev)}
+                        placeholder="映射后"
+                        className="px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        onClick={() => setValueMapEditor(prev => prev ? {
+                          ...prev,
+                          rows: prev.rows.length <= 1 ? prev.rows : prev.rows.filter(r => r.id !== row.id)
+                        } : prev)}
+                        className="px-2 py-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setValueMapEditor(prev => prev ? { ...prev, rows: [...prev.rows, createValueMapRow()] } : prev)}
+                  className="mt-3 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-500/10 text-blue-500 text-[10px] font-bold hover:bg-blue-500/20"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  添加映射行
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={handleSaveValueMap}
+                className="flex-1 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600"
+              >
+                保存到数据库
+              </button>
+              <button
+                onClick={() => {
+                  setShowValueMapModal(false);
+                  setValueMapEditor(null);
+                }}
+                className="px-4 py-2 bg-slate-500/10 rounded-lg text-xs"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           {onBack && (
@@ -509,7 +1014,63 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
           >
             {showJsonPanel ? t('metadata.hideJson') || '隐藏JSON' : t('metadata.showJson') || '显示JSON'}
           </button>
-        </div>
+          {activeTab !== 'parse' && (
+            <button
+              onClick={() => {
+                const exportData = {
+                  version: '1.0',
+                  fields: fields,
+                  displayConfig: displayConfig
+                };
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `metadata-config-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 text-xs font-bold"
+            >
+              <Download className="w-4 h-4" />
+              导出配置
+            </button>
+          )}
+          {activeTab !== 'parse' && (
+            <label className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-500/10 text-slate-400 border border-slate-500/20 text-xs font-bold cursor-pointer hover:bg-slate-500/20">
+              <Upload className="w-4 h-4" />
+              导入配置
+              <input
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const text = await file.text();
+                    const imported = JSON.parse(text);
+                    if (imported.fields && Array.isArray(imported.fields)) {
+                      const newFields = [...imported.fields];
+                      setFields(newFields);
+                      saveFieldsToDatabase(newFields);
+                      onFieldsChange?.(newFields);
+                    }
+                    if (imported.displayConfig) {
+                      setDisplayConfig(imported.displayConfig);
+                      setHasDisplayChanges(true);
+                    }
+                    alert('配置导入成功！');
+                  } catch (err) {
+                    alert('配置导入失败，请检查文件格式');
+                  }
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          )}
+
+      </div>
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-[var(--border-color)] pb-2">

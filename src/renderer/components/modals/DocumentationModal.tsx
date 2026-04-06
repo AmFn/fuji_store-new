@@ -47,6 +47,7 @@ export function DocumentationModal({ isOpen, onClose }: DocumentationModalProps)
               <NavItem id="grain-effect" label={t('metadata.docGrain') || '颗粒效果'} />
               <NavItem id="color-chrome" label={t('metadata.docChrome') || '色彩效果'} />
               <NavItem id="recipes" label={t('metadata.docRecipes') || '配方推荐'} />
+              <NavItem id="json-fields" label={t('metadata.docJsonFields') || 'JSON字段说明'} />
               <NavItem id="tips" label={t('metadata.docTips') || '使用技巧'} />
             </nav>
           </div>
@@ -282,6 +283,144 @@ export function DocumentationModal({ isOpen, onClose }: DocumentationModalProps)
                   name="人像摄影"
                   params={['胶片模拟: PRO Neg. Std', '白平衡: 自动或日光', '清晰度: -1', '色彩: -1', '颗粒效果: 关闭']}
                 />
+              </Section>
+
+              <Section id="json-fields" title={t('metadata.docJsonFields') || 'JSON字段说明'}>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  以下是应用程序中使用的参数字段与富士相机 EXIF 元数据的对应关系，基于 FujiFilm 官方规范。
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-700">
+                        <th className="text-left py-2 pr-4">内部键名</th>
+                        <th className="text-left py-2 pr-4">显示名称</th>
+                        <th className="text-left py-2 pr-4">JSON路径</th>
+                        <th className="text-left py-2 pr-4">EXIF标签</th>
+                        <th className="text-left py-2">说明</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">filmSimulation</td>
+                        <td className="py-2 pr-4">胶片模拟</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">FilmMode</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1401</td>
+                        <td className="py-2 text-slate-500">胶片模拟模式，如 PROVIA、Velvia、ASTIA、CLASSIC CHROME、ETERNA 等</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">whiteBalance</td>
+                        <td className="py-2 pr-4">白平衡</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">WhiteBalance</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1002</td>
+                        <td className="py-2 text-slate-500">白平衡预设：自动、日光、阴天、荧光灯、白炽灯、开尔文等</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">whiteBalanceShiftR</td>
+                        <td className="py-2 pr-4">白平衡红色偏移</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">WBShiftR</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x144a</td>
+                        <td className="py-2 text-slate-500">白平衡微调红色通道，范围 -9 到 +9</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">whiteBalanceShiftB</td>
+                        <td className="py-2 pr-4">白平衡蓝色偏移</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">WBShiftB</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x144c</td>
+                        <td className="py-2 text-slate-500">白平衡微调蓝色通道，范围 -9 到 +9</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">whiteBalanceShift</td>
+                        <td className="py-2 pr-4">白平衡偏移(组合)</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">WBShift</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x100a</td>
+                        <td className="py-2 text-slate-500">组合字段，同时存储 R 和 B 偏移值</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">dynamicRange</td>
+                        <td className="py-2 pr-4">动态范围</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">DynamicRange</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1400</td>
+                        <td className="py-2 text-slate-500">动态范围设置：DR100、DR200、DR400</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">sharpness</td>
+                        <td className="py-2 pr-4">锐度</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">Sharpness</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1001</td>
+                        <td className="py-2 text-slate-500">锐度调整，范围 -4 到 +4 (0=标准)</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">saturation</td>
+                        <td className="py-2 pr-4">饱和度</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">Saturation</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1003</td>
+                        <td className="py-2 text-slate-500">色彩饱和度调整，范围 -4 到 +4 (0=标准)</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">contrast</td>
+                        <td className="py-2 pr-4">对比度</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">Contrast</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1004/0x1006</td>
+                        <td className="py-2 text-slate-500">对比度调整，范围 -4 到 +4 (0=标准)</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">highlightTone</td>
+                        <td className="py-2 pr-4">高光</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">Highlight</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1041</td>
+                        <td className="py-2 text-slate-500">高光色调调整，范围 -2 到 +4 (0=标准)</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">shadowTone</td>
+                        <td className="py-2 pr-4">阴影</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">Shadow</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1040</td>
+                        <td className="py-2 text-slate-500">阴影色调调整，范围 -2 到 +4 (0=标准)</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">noiseReduction</td>
+                        <td className="py-2 pr-4">降噪</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">NoiseReduction</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x100e</td>
+                        <td className="py-2 text-slate-500">降噪强度，范围 -4 到 +4 (0=标准)</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">clarity</td>
+                        <td className="py-2 pr-4">清晰度</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">Clarity</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x100f</td>
+                        <td className="py-2 text-slate-500">清晰度/清晰度调整，范围 -5 到 +5</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">grainEffect</td>
+                        <td className="py-2 pr-4">颗粒效果</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">GrainEffect</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1047/0x104c</td>
+                        <td className="py-2 text-slate-500">颗粒效果：Roughness(粗糙度) + Size(大小)，如 "Off, Off"、"Weak, Small"</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">colorChromeEffect</td>
+                        <td className="py-2 pr-4">色彩效果</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">ColorChromeEffect</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x1048</td>
+                        <td className="py-2 text-slate-500">色彩chrome效果：Off、Weak(弱)、Strong(强)</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="py-2 pr-4 font-mono text-blue-500">colorChromeEffectBlue</td>
+                        <td className="py-2 pr-4">蓝色色彩效果</td>
+                        <td className="py-2 pr-4 font-mono text-slate-500">ColorChromeEffectBlue</td>
+                        <td className="py-2 pr-4 font-mono text-slate-400">0x104e</td>
+                        <td className="py-2 text-slate-500">蓝色色彩chrome效果：Off、Weak(弱)、Strong(强)</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    <strong>数据来源：</strong> EXIF 元数据标签基于 <a href="https://exiftool.org/TagNames/FujiFilm.html" target="_blank" rel="noopener noreferrer" className="underline">exiftool.org FujiFilm Tags 规范</a>
+                  </p>
+                </div>
               </Section>
 
               <Section id="tips" title={t('metadata.docTips') || '使用技巧'}>

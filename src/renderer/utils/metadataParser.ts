@@ -21,9 +21,13 @@ export interface MetadataFieldConfig {
   key: string;
   label: string;
   labelKey?: string;
+  description?: string;
   jsonPath: string;
   isEnabled: boolean;
   isCustom?: boolean;
+  isCombined?: boolean;
+  combinedFields?: string[];
+  valueMap?: Record<string, string>;
 }
 
 export type DisplayType = 'photoList' | 'photoDetail' | 'recipeList' | 'recipeDetail';
@@ -130,15 +134,70 @@ export class MetadataParser {
     const result: Record<string, string> = {};
     const raw = metadata.raw || {};
 
+    const getValue = (jsonPath: string): string => {
+      const value = this.getNestedValue(raw, jsonPath);
+      return value !== undefined && value !== null ? String(value) : '';
+    };
+
     for (const field of fields) {
-      if (!field.isEnabled || !field.jsonPath) continue;
-      const value = this.getNestedValue(raw, field.jsonPath);
-      if (value !== undefined && value !== null) {
-        result[field.key] = String(value);
+      if (!field.isEnabled) continue;
+
+      if (field.isCombined && field.combinedFields && field.combinedFields.length > 0) {
+        const combinedParts: string[] = [];
+        for (const cf of field.combinedFields) {
+          const subField = fields.find(f => f.key === cf);
+          if (subField?.jsonPath) {
+            const val = getValue(subField.jsonPath);
+            if (val) {
+              if (cf === 'whiteBalanceShiftR') {
+                combinedParts.push(`R:${val.startsWith('-') ? val : (val !== '0' ? '+' + val : '0')}`);
+              } else if (cf === 'whiteBalanceShiftB') {
+                combinedParts.push(`B:${val.startsWith('-') ? val : (val !== '0' ? '+' + val : '0')}`);
+              } else {
+                combinedParts.push(this.applyValueMap(val, field.valueMap));
+              }
+            }
+          }
+        }
+        result[field.key] = combinedParts.join(' ');
+      } else if (field.jsonPath) {
+        const value = getValue(field.jsonPath);
+        if (value) {
+          result[field.key] = this.applyValueMap(value, field.valueMap);
+        }
       }
     }
 
     return result;
+  }
+
+  private static applyValueMap(value: string, valueMap?: Record<string, string>): string {
+    if (!valueMap || !value) return value;
+    return valueMap[value] || value;
+  }
+
+  static parseValueMap(text: string): Record<string, string> {
+    const map: Record<string, string> = {};
+    if (!text) return map;
+    
+    const lines = text.split('\n').filter(line => line.trim());
+    for (const line of lines) {
+      const separator = line.includes('→') ? '→' : line.includes('=>') ? '=>' : ':';
+      const parts = line.split(separator);
+      if (parts.length === 2) {
+        const key = parts[0].trim();
+        const val = parts[1].trim();
+        if (key && val) {
+          map[key] = val;
+        }
+      }
+    }
+    return map;
+  }
+
+  static formatValueMap(map: Record<string, string>): string {
+    if (!map || Object.keys(map).length === 0) return '';
+    return Object.entries(map).map(([key, val]) => `${key}→${val}`).join('\n');
   }
 
   static extractFieldsFromConfig(metadata: ParsedMetadata, config: MetadataMappingConfig): Record<string, string> {

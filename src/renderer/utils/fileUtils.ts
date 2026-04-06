@@ -1,6 +1,17 @@
 import { Photo, Folder } from '../types';
 import { PLACEHOLDER_IMAGE } from '../constants/assets';
 
+function parseDbDateTime(dateStr: any): string | null {
+  if (!dateStr) return null;
+  const str = String(dateStr);
+  const normalized = str.replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T');
+  const parsed = new Date(normalized);
+  if (isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+}
+
 /**
  * Normalizes a file system path by replacing backslashes with forward slashes and converting to lowercase
  */
@@ -19,6 +30,20 @@ function toFileUrl(inputPath: string): string {
     return `file://${encodeURI(normalized)}`;
   }
   return `file:///${encodeURI(normalized)}`;
+}
+
+function readMetadataValue(metadata: Record<string, any>, keys: string[]): any {
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (value !== undefined && value !== null && value !== '') {
+      if (value && typeof value === 'object') {
+        if (value.rawValue !== undefined) return value.rawValue;
+        if (value.value !== undefined) return value.value;
+      }
+      return value;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -60,6 +85,7 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
       filmMode: '',
       isFavorite: false,
       isHidden: false,
+      isRecipeDisplay: false,
       rating: 0,
       tags: dbPhoto.tags || [],
       ownerId: 'local'
@@ -101,7 +127,7 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     }
   }
 
-  return {
+  const result: Photo = {
     id: String(dbPhoto.id || Math.random()),
     fileName: fileName,
     filePath: dbPhoto.path,
@@ -109,50 +135,138 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     previewUrl,
     hash: dbPhoto.hash || '',
     cameraModel: dbPhoto.camera_model || '',
-    dateTime: dbPhoto.shot_at ? new Date(dbPhoto.shot_at).toISOString() : (dbPhoto.created_at ? new Date(dbPhoto.created_at).toISOString() : new Date().toISOString()),
+    dateTime: parseDbDateTime(dbPhoto.date_time) || parseDbDateTime(dbPhoto.shot_at) || parseDbDateTime(dbPhoto.created_at) || new Date().toISOString(),
     filmMode: dbPhoto.film_mode || '',
     isFavorite: false,
     isHidden: false,
     isRecipeDisplay: dbPhoto.source_type === 'recipe_display' || Boolean(dbPhoto.is_recipe_display),
     rating: 0,
     tags: dbPhoto.tags ? dbPhoto.tags.split(',').filter((t: string) => t.trim()) : [],
+    folderId: dbPhoto.folder_id !== undefined && dbPhoto.folder_id !== null ? String(dbPhoto.folder_id) : undefined,
     ownerId: 'local',
-    // 富士相机参数
-    dynamicRange: dbPhoto.dynamic_range || '',
-    colorChrome: dbPhoto.color_chrome || '',
-    colorChromeBlue: dbPhoto.color_chrome_blue || '',
-    colorChromeRed: dbPhoto.color_chrome_red || '',
-    grainEffect: dbPhoto.grain_effect || '',
-    grainEffectRough: dbPhoto.grain_effect_rough || '',
-    highlightTone: dbPhoto.highlight_tone || '',
-    shadowTone: dbPhoto.shadow_tone || '',
-    tone: dbPhoto.tone || '',
-    sharpness: dbPhoto.sharpness || '',
-    clarity: dbPhoto.clarity || '',
-    noiseReduction: dbPhoto.noise_reduction || '',
-    highISONoiseReduction: dbPhoto.high_iso_noise_reduction || '',
-    iso: dbPhoto.iso || 0,
-    aperture: dbPhoto.aperture || 0,
-    shutterSpeed: dbPhoto.shutter_speed || '',
-    exposureCompensation: dbPhoto.exposure_compensation || 0,
-    exposureMode: dbPhoto.exposure_mode || '',
-    meteringMode: dbPhoto.metering_mode || '',
-    whiteBalance: dbPhoto.white_balance || '',
-    whiteBalanceMode: dbPhoto.white_balance_mode || '',
-    whiteBalanceTemperature: dbPhoto.white_balance_temperature || 0,
-    whiteBalanceTint: dbPhoto.white_balance_tint || 0,
-    focusMode: dbPhoto.focus_mode || '',
-    focusArea: dbPhoto.focus_area || '',
-    afPoint: dbPhoto.af_point || '',
-    flashFired: dbPhoto.flash_fired || 0,
-    flashMode: dbPhoto.flash_mode || '',
-    lensModel: dbPhoto.lens_model || '',
-    lensMake: dbPhoto.lens_make || '',
-    focalLength: dbPhoto.focal_length || 0,
-    focalLength35mm: dbPhoto.focal_length_35mm || 0,
-    location: dbPhoto.location || '',
-    folderId: dbPhoto.folder_id != null ? String(dbPhoto.folder_id) : undefined
+    // 从 metadataJson 中提取字段
+    metadataJson: null,
   };
+
+  try {
+    result.metadataJson = dbPhoto.metadata_json
+      ? (typeof dbPhoto.metadata_json === 'string' ? JSON.parse(dbPhoto.metadata_json) : dbPhoto.metadata_json)
+      : null;
+  } catch {
+    result.metadataJson = null;
+  }
+
+  // 从 metadataJson 中提取常用字段
+  const metadata = result.metadataJson as Record<string, any> | null;
+  if (metadata) {
+    const make = readMetadataValue(metadata, ['Make', 'EXIF:Make']);
+    const model = readMetadataValue(metadata, ['Model', 'EXIF:Model']);
+    if (make || model) {
+      result.cameraModel = [make, model].filter(Boolean).join(' ');
+    }
+    const lensModel = readMetadataValue(metadata, ['LensModel', 'EXIF:LensModel']);
+    if (lensModel) {
+      result.lensModel = String(lensModel);
+    }
+    if (metadata.FNumber) {
+      const fNum = typeof metadata.FNumber === 'object' ? `${metadata.FNumber.numerator}/${metadata.FNumber.denominator}` : String(metadata.FNumber);
+      result.aperture = fNum;
+    }
+    if (metadata.ExposureTime) {
+      if (typeof metadata.ExposureTime === 'object') {
+        const num = metadata.ExposureTime.numerator;
+        const den = metadata.ExposureTime.denominator;
+        result.shutterSpeed = den === 1 ? String(num) : `${num}/${den}`;
+      } else {
+        result.shutterSpeed = String(metadata.ExposureTime);
+      }
+    }
+    if (metadata.ISOSpeedRatings) {
+      const isoVal = Array.isArray(metadata.ISOSpeedRatings) ? metadata.ISOSpeedRatings[0] : metadata.ISOSpeedRatings;
+      result.iso = typeof isoVal === 'number' ? isoVal : parseInt(String(isoVal), 10) || 0;
+    }
+    if (metadata.FocalLength) {
+      const fl = typeof metadata.FocalLength === 'object' ? metadata.FocalLength.numerator / metadata.FocalLength.denominator : parseFloat(String(metadata.FocalLength));
+      result.focalLength = fl ? `${fl}mm` : '';
+      result.focalLength35mm = Math.round(fl * 1.5) || 0;
+    }
+    if (metadata.DateTimeOriginal) {
+      const dt = metadata.DateTimeOriginal;
+      if (typeof dt === 'string') {
+        result.dateTime = dt.replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T');
+      } else if (dt.year) {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        result.dateTime = `${dt.year}-${pad(dt.month)}-${pad(dt.day)}T${pad(dt.hour || 0)}:${pad(dt.minute || 0)}:${pad(dt.second || 0)}`;
+      }
+    } else if (metadata.CreateDate) {
+      const dt = metadata.CreateDate;
+      if (typeof dt === 'string') {
+        result.dateTime = dt.replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T');
+      }
+    }
+    const filmMode = readMetadataValue(metadata, ['filmSimulation', 'filmMode', 'FilmSimulation', 'FilmMode', 'FujiFilm:FilmMode']);
+    if (filmMode !== undefined && filmMode !== null && filmMode !== '') {
+      result.filmMode = String(filmMode);
+    }
+    const dynamicRange = readMetadataValue(metadata, ['dynamicRange', 'DynamicRange', 'FujiFilm:DynamicRange', 'DynamicRangeSetting']);
+    if (dynamicRange !== undefined) {
+      result.dynamicRange = dynamicRange === 1 ? 'DR100' : dynamicRange === 3 ? 'Wide' : String(dynamicRange);
+    }
+    const whiteBalance = readMetadataValue(metadata, ['whiteBalance', 'WhiteBalance', 'FujiFilm:WhiteBalance']);
+    if (whiteBalance !== undefined) {
+      result.whiteBalance = String(whiteBalance);
+    }
+    const sharpness = readMetadataValue(metadata, ['sharpness', 'Sharpness']);
+    if (sharpness !== undefined) {
+      result.sharpness = String(sharpness);
+    }
+    const saturation = readMetadataValue(metadata, ['saturation', 'Saturation']);
+    if (saturation !== undefined) {
+      result.saturation = String(saturation);
+    }
+    const contrast = readMetadataValue(metadata, ['contrast', 'Contrast']);
+    if (contrast !== undefined) {
+      result.contrast = String(contrast);
+    }
+    const highlightTone = readMetadataValue(metadata, ['highlightTone', 'Highlight']);
+    if (highlightTone !== undefined) {
+      result.highlightTone = String(highlightTone);
+    }
+    const shadowTone = readMetadataValue(metadata, ['shadowTone', 'Shadow']);
+    if (shadowTone !== undefined) {
+      result.shadowTone = String(shadowTone);
+    }
+    const noiseReduction = readMetadataValue(metadata, ['noiseReduction', 'NoiseReduction']);
+    if (noiseReduction !== undefined) {
+      result.noiseReduction = String(noiseReduction);
+    }
+    const clarity = readMetadataValue(metadata, ['clarity', 'Clarity']);
+    if (clarity !== undefined) {
+      result.clarity = String(clarity);
+    }
+    const colorChromeEffect = readMetadataValue(metadata, ['colorChromeEffect', 'ColorChromeEffect', 'FujiFilm:ColorChromeEffect']);
+    if (colorChromeEffect !== undefined) {
+      result.colorChrome = String(colorChromeEffect);
+      result.colorChromeEffect = String(colorChromeEffect);
+    }
+    const colorChromeEffectBlue = readMetadataValue(metadata, ['colorChromeEffectBlue', 'ColorChromeEffectBlue', 'FujiFilm:ColorChromeEffectBlue']);
+    if (colorChromeEffectBlue !== undefined) {
+      result.colorChromeBlue = String(colorChromeEffectBlue);
+      result.colorChromeEffectBlue = String(colorChromeEffectBlue);
+    }
+    const grainEffect = readMetadataValue(metadata, ['grainEffect', 'GrainEffect', 'FujiFilm:GrainEffect']);
+    if (grainEffect !== undefined) {
+      result.grainEffect = String(grainEffect);
+    }
+    if (metadata.ImageWidth) {
+      result.width = metadata.ImageWidth;
+    }
+    if (metadata.ImageHeight) {
+      result.height = metadata.ImageHeight;
+    }
+  }
+  
+  return result;
 }
 
 /**

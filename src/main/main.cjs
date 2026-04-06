@@ -10,6 +10,26 @@ let thumbnailCacheDir = '';
 let configPath = '';
 let recipePhotoDir = '';
 
+function parseOptionalFolderId(rawValue) {
+  if (rawValue === null || rawValue === undefined || rawValue === '' || rawValue === 'null') {
+    return null;
+  }
+  const n = Number(rawValue);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function normalizeExifDateTime(exifValue) {
+  if (!exifValue) return null;
+  if (exifValue instanceof Date && !Number.isNaN(exifValue.getTime())) {
+    return exifValue.toISOString();
+  }
+  const text = String(exifValue).trim();
+  if (!text) return null;
+  const normalized = text.replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T');
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 async function loadConfig() {
   try {
     const configData = await fs.readFile(configPath, 'utf-8');
@@ -73,14 +93,113 @@ function quickHash(filePath, stats) {
   return crypto.createHash('sha1').update(`${filePath}|${stats.size}|${Math.floor(stats.mtimeMs)}`).digest('hex');
 }
 
+function getNestedValue(obj, pathText) {
+  if (!obj || !pathText) return undefined;
+  const keys = String(pathText).split('.');
+  let current = obj;
+  for (const key of keys) {
+    if (current && typeof current === 'object' && key in current) {
+      current = current[key];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function applyValueMap(value, valueMap) {
+  if (value === undefined || value === null || value === '' || !valueMap || typeof valueMap !== 'object') {
+    return value;
+  }
+  const str = String(value);
+  return valueMap[str] !== undefined ? valueMap[str] : value;
+}
+
+function resolveCombinedValue(metadata, field, configByKey) {
+  if (!field?.isCombined || !Array.isArray(field.combinedFields) || field.combinedFields.length === 0) {
+    return undefined;
+  }
+  const parts = [];
+  for (const combinedKey of field.combinedFields) {
+    const subField = configByKey.get(combinedKey);
+    if (!subField?.jsonPath) continue;
+    const subValue = getNestedValue(metadata, subField.jsonPath);
+    if (subValue !== undefined && subValue !== null && subValue !== '') {
+      parts.push(String(subValue));
+    }
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
+function applyFieldConfig(metadata, configJson) {
+  if (!Array.isArray(configJson) || configJson.length === 0) {
+    return metadata;
+  }
+  const configByKey = new Map(configJson.map(field => [field.key, field]));
+  const extracted = {};
+  for (const field of configJson) {
+    if (!field?.isEnabled) continue;
+    let value;
+    if (field.isCombined) {
+      value = resolveCombinedValue(metadata, field, configByKey);
+    } else if (field.jsonPath) {
+      value = getNestedValue(metadata, field.jsonPath);
+    }
+    value = applyValueMap(value, field.valueMap);
+    if (value !== undefined && value !== null && value !== '') {
+      extracted[field.key] = value;
+    }
+  }
+  return { ...metadata, ...extracted };
+}
+
 async function scanFilesDirect(filePaths, targetFolderId) {
   if (!libraryManager) throw new Error('LibraryManager not initialized');
-  const parsedFolderId = Number(targetFolderId);
-  const folderId = Number.isFinite(parsedFolderId) ? parsedFolderId : null;
+  const folderId = parseOptionalFolderId(targetFolderId);
   const rows = [];
+  let metadataConfig = null;
+  try {
+    metadataConfig = await libraryManager.db.getMetadataFields();
+  } catch (error) {
+    metadataConfig = null;
+    console.warn('[scanFilesDirect] Failed to load metadata fields, fallback to raw metadata:', error?.message || error);
+  }
+  let exiftool = null;
+  try {
+    const ExifTool = require('exiftool-vendored');
+    exiftool = new ExifTool.ExifTool({ taskTimeoutMillis: 10000 });
+  } catch {
+    exiftool = null;
+  }
+
   for (const fp of filePaths || []) {
     try {
       const st = await fs.stat(fp);
+      let metadataJson = null;
+      let dateTime = null;
+      let normalizedFilmMode = null;
+      let normalizedWhiteBalance = null;
+      let normalizedDynamicRange = null;
+
+      if (exiftool) {
+        try {
+          const rawMetadata = await exiftool.read(fp);
+          const processedMetadata = rawMetadata ? applyFieldConfig(rawMetadata, metadataConfig) : null;
+          metadataJson = processedMetadata ? JSON.stringify(processedMetadata) : null;
+          normalizedFilmMode = processedMetadata?.filmSimulation || processedMetadata?.filmMode || processedMetadata?.FilmMode || null;
+          normalizedWhiteBalance = processedMetadata?.whiteBalance || processedMetadata?.WhiteBalance || null;
+          normalizedDynamicRange = processedMetadata?.dynamicRange || processedMetadata?.DynamicRange || null;
+          dateTime =
+            normalizeExifDateTime(processedMetadata?.DateTimeOriginal) ||
+            normalizeExifDateTime(processedMetadata?.CreateDate) ||
+            normalizeExifDateTime(processedMetadata?.FileModifyDate) ||
+            null;
+        } catch {
+          metadataJson = null;
+          dateTime = null;
+        }
+      }
+
       rows.push({
         path: normalizePath(fp),
         hash: quickHash(normalizePath(fp), st),
@@ -93,10 +212,23 @@ async function scanFilesDirect(filePaths, targetFolderId) {
         thumbnail_status: 'pending',
         deleted: 0,
         source_type: 'library',
+        date_time: dateTime,
+        metadata_json: metadataJson,
+        film_mode: normalizedFilmMode ? String(normalizedFilmMode) : null,
+        white_balance: normalizedWhiteBalance ? String(normalizedWhiteBalance) : null,
+        dynamic_range: normalizedDynamicRange ? String(normalizedDynamicRange) : null,
       });
     } catch {
     }
   }
+
+  if (exiftool) {
+    try {
+      await exiftool.end();
+    } catch {
+    }
+  }
+
   if (rows.length > 0) {
     await libraryManager.db.upsertPhotosBatch(rows);
     for (const row of rows) {

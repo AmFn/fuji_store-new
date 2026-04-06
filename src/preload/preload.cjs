@@ -61,6 +61,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 文件选择对话框
   pickFiles: () => ipcRenderer.invoke('dialog:pick-files'),
 
+  // 解析图片元数据
+  parseMetadata: (filePath) => ipcRenderer.invoke('parse-metadata', filePath),
+
+  // 元数据字段配置
+  getMetadataFields: () => ipcRenderer.invoke('get-metadata-fields'),
+  saveMetadataFields: (fields) => ipcRenderer.invoke('save-metadata-fields', fields),
+
   // 扫描文件夹
   scanFolder: (folderPath, watch = true, allowedFormats = null) =>
     ipcRenderer.invoke('scanDirectory', folderPath, allowedFormats).catch(() =>

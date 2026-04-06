@@ -11,6 +11,8 @@ import { recipeService } from '../../services/recipeService';
 import { ConfirmModal } from '../modals/ConfirmModal';
 import { useLanguage } from '../../hooks/useLanguage';
 import { convertDbPhotoToPhoto } from '../../utils/fileUtils';
+import { MetadataFieldConfig } from '../../utils/metadataParser';
+import defaultConfig from '../../constants/metadata-default-config.json';
 
 interface RecipeViewProps {
   recipes: Recipe[];
@@ -18,7 +20,7 @@ interface RecipeViewProps {
   user: User | null;
   theme: string;
   onRecipesChange: (recipes: Recipe[]) => void;
-  metadataFields?: { key: string; label: string; labelKey?: string; isEnabled: boolean }[];
+  metadataFields?: MetadataFieldConfig[];
   displayConfig?: Record<string, string[]>;
 }
 
@@ -65,6 +67,7 @@ const getClosestAspectOption = (width: number, height: number) => {
 };
 
 export function RecipeView({ recipes, photos, user, theme, onRecipesChange, metadataFields = [], displayConfig = {} }: RecipeViewProps) {
+  type ValueMapRow = { id: string; from: string; to: string };
   const { t } = useLanguage();
   
   const DEFAULT_FIELDS = [
@@ -98,6 +101,10 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange, meta
   const [selectedAspectKey, setSelectedAspectKey] = useState<string>('3:2');
   const [aspectManuallyChanged, setAspectManuallyChanged] = useState(false);
   const [aspectOptionsExpanded, setAspectOptionsExpanded] = useState(false);
+  const [showValueMapModal, setShowValueMapModal] = useState(false);
+  const [valueMapJsonPath, setValueMapJsonPath] = useState('');
+  const [valueMapRows, setValueMapRows] = useState<ValueMapRow[]>([]);
+  const [metadataFieldsCache, setMetadataFieldsCache] = useState<MetadataFieldConfig[]>([]);
   const getDefaultRecipeForm = (): Partial<Recipe> => ({
     ...DEFAULT_RECIPE_FORM,
     ownerId: user?.uid || 'local',
@@ -112,6 +119,151 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange, meta
     if (!window.electronAPI?.getThumbnailDir) return;
     window.electronAPI.getThumbnailDir().then(setThumbnailDir).catch(() => setThumbnailDir(null));
   }, []);
+
+  const createValueMapRow = (from: string = '', to: string = ''): ValueMapRow => ({
+    id: `vm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    from,
+    to
+  });
+
+  const valueMapToRows = (valueMap?: Record<string, string>, preferredFrom?: string): ValueMapRow[] => {
+    const rows = Object.entries(valueMap || {}).map(([from, to]) => createValueMapRow(from, to));
+    if (preferredFrom && !rows.some(row => row.from === preferredFrom)) {
+      rows.unshift(createValueMapRow(preferredFrom, ''));
+    }
+    return rows.length > 0 ? rows : [createValueMapRow(preferredFrom || '', '')];
+  };
+
+  const rowsToValueMap = (rows: ValueMapRow[]): Record<string, string> => {
+    const map: Record<string, string> = {};
+    rows.forEach((row) => {
+      const from = row.from.trim();
+      const to = row.to.trim();
+      if (from && to) {
+        map[from] = to;
+      }
+    });
+    return map;
+  };
+
+  const buildFieldKeyFromJsonPath = (jsonPath: string, existingFields: MetadataFieldConfig[]): string => {
+    const normalized = jsonPath.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'json_path';
+    const base = `jsonpath_${normalized}`.slice(0, 60);
+    let key = base;
+    let suffix = 1;
+    const keySet = new Set(existingFields.map(field => field.key));
+    while (keySet.has(key)) {
+      key = `${base}_${suffix++}`;
+    }
+    return key;
+  };
+
+  useEffect(() => {
+    const defaultFields: MetadataFieldConfig[] = Array.isArray(defaultConfig.fields) ? defaultConfig.fields as MetadataFieldConfig[] : [];
+    const mergeFields = (sourceFields: MetadataFieldConfig[]) => {
+      const defaultKeys = new Set(defaultFields.map(field => field.key));
+      return [
+        ...defaultFields.map(defaultField => {
+          const existing = sourceFields.find(field => field.key === defaultField.key);
+          return existing ? { ...defaultField, ...existing } : defaultField;
+        }),
+        ...sourceFields.filter(field => !defaultKeys.has(field.key))
+      ];
+    };
+
+    const loadFields = async () => {
+      try {
+        const dbFields = await window.electronAPI?.getMetadataFields?.();
+        if (Array.isArray(dbFields) && dbFields.length > 0) {
+          setMetadataFieldsCache(mergeFields(dbFields));
+          return;
+        }
+      } catch (error) {
+        console.error('[RecipeView] Failed to load metadata fields from db:', error);
+      }
+
+      if (Array.isArray(metadataFields) && metadataFields.length > 0) {
+        setMetadataFieldsCache(mergeFields(metadataFields));
+        return;
+      }
+
+      try {
+        const stored = localStorage.getItem('fuji_metadata_fields');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setMetadataFieldsCache(mergeFields(parsed));
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('[RecipeView] Failed to load metadata fields from localStorage:', error);
+      }
+
+      setMetadataFieldsCache(defaultFields);
+    };
+
+    loadFields();
+  }, [metadataFields]);
+
+  const openValueMapEditor = (fieldKeyOrPath: string, originalValue?: string) => {
+    const value = String(originalValue || '').trim();
+    if (!value || value === '-') return;
+    const field = metadataFieldsCache.find(item => item.key === fieldKeyOrPath || item.jsonPath === fieldKeyOrPath);
+    const resolvedPath = (field?.jsonPath || fieldKeyOrPath || '').trim();
+    if (!resolvedPath) return;
+    setValueMapJsonPath(resolvedPath);
+    setValueMapRows(valueMapToRows(field?.valueMap, value));
+    setShowValueMapModal(true);
+  };
+
+  const handleSaveValueMap = async () => {
+    const jsonPath = valueMapJsonPath.trim();
+    if (!jsonPath) {
+      alert('请填写字段 JSON Path');
+      return;
+    }
+
+    const mapped = rowsToValueMap(valueMapRows);
+    const existingField = metadataFieldsCache.find(field => field.jsonPath === jsonPath);
+    let nextFields: MetadataFieldConfig[];
+    if (existingField) {
+      nextFields = metadataFieldsCache.map(field => field.key === existingField.key ? { ...field, jsonPath, valueMap: mapped } : field);
+    } else {
+      nextFields = [...metadataFieldsCache, {
+        key: buildFieldKeyFromJsonPath(jsonPath, metadataFieldsCache),
+        label: jsonPath,
+        jsonPath,
+        isEnabled: false,
+        isCustom: true,
+        valueMap: mapped
+      }];
+    }
+
+    try {
+      await window.electronAPI?.saveMetadataFields?.(nextFields);
+      localStorage.setItem('fuji_metadata_fields', JSON.stringify(nextFields));
+      setMetadataFieldsCache(nextFields);
+      setShowValueMapModal(false);
+      setValueMapJsonPath('');
+      setValueMapRows([]);
+    } catch (error) {
+      console.error('[RecipeView] Failed to save metadata fields:', error);
+      alert('保存值映射失败');
+    }
+  };
+
+  const renderMappableCard = (reactKey: string, fieldKey: string, label: string, value?: string) => (
+    <div
+      key={reactKey}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        openValueMapEditor(fieldKey, value);
+      }}
+    >
+      <FilmSettingCard label={label} value={value} />
+    </div>
+  );
 
   const loadRecipes = async () => {
     setLoading(true);
@@ -486,6 +638,82 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange, meta
 
   return (
     <div className="h-full flex flex-col space-y-10">
+      {showValueMapModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-[var(--border-color)] bg-[var(--bg-primary)] p-5">
+            <h3 className="text-sm font-bold mb-4">编辑值映射</h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-slate-400 mb-1">字段 JSON Path</p>
+                <input
+                  type="text"
+                  value={valueMapJsonPath}
+                  onChange={(e) => setValueMapJsonPath(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="rounded-xl border border-[var(--border-color)] p-3 bg-slate-500/5">
+                <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-2">
+                  <span className="text-[10px] text-slate-400">原值</span>
+                  <span className="text-[10px] text-slate-400">映射值</span>
+                  <span />
+                </div>
+                <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                  {valueMapRows.map((row) => (
+                    <div key={row.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <input
+                        type="text"
+                        value={row.from}
+                        onChange={(e) => setValueMapRows(prev => prev.map(r => r.id === row.id ? { ...r, from: e.target.value } : r))}
+                        className="px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs font-mono focus:outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="text"
+                        value={row.to}
+                        onChange={(e) => setValueMapRows(prev => prev.map(r => r.id === row.id ? { ...r, to: e.target.value } : r))}
+                        className="px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-[var(--border-color)] text-xs focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        onClick={() => setValueMapRows(prev => prev.length <= 1 ? prev : prev.filter(r => r.id !== row.id))}
+                        className="px-2 py-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setValueMapRows(prev => [...prev, createValueMapRow()])}
+                  className="mt-3 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-500/10 text-blue-500 text-[10px] font-bold hover:bg-blue-500/20"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  添加映射行
+                </button>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={handleSaveValueMap}
+                className="flex-1 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600"
+              >
+                保存到数据库
+              </button>
+              <button
+                onClick={() => {
+                  setShowValueMapModal(false);
+                  setValueMapJsonPath('');
+                  setValueMapRows([]);
+                }}
+                className="px-4 py-2 bg-slate-500/10 rounded-lg text-xs"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 flex-shrink-0">
         <div>
           <h2 className="text-3xl font-black tracking-tight">{t('recipe.title')}</h2>
@@ -800,39 +1028,41 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange, meta
                             const field = metadataFields.find(f => f.key === fieldKey);
                             const value = (selectedRecipe as any)[fieldKey] || '-';
                             return (
-                              <FilmSettingCard 
-                                key={fieldKey} 
-                                label={field?.label || fieldKey} 
-                                value={value} 
-                              />
+                              renderMappableCard(
+                                fieldKey,
+                                fieldKey,
+                                field?.label || fieldKey,
+                                value
+                              )
                             );
                           })
                         ) : metadataFields.length > 0 ? (
                           metadataFields.filter(f => f.isEnabled).map(field => (
-                            <FilmSettingCard 
-                              key={field.key} 
-                              label={field.label} 
-                              value={(selectedRecipe as any)[field.key] || '-'} 
-                            />
+                            renderMappableCard(
+                              field.key,
+                              field.key,
+                              field.label,
+                              (selectedRecipe as any)[field.key] || '-'
+                            )
                           ))
                         ) : (
                           [
-                            { label: t('recipe.whiteBalance'), value: selectedRecipe.whiteBalance },
-                            { label: t('recipe.dynamicRange'), value: selectedRecipe.dynamicRange },
-                            { label: t('recipe.highlight'), value: selectedRecipe.highlightTone },
-                            { label: t('recipe.shadow'), value: selectedRecipe.shadowTone },
-                            { label: t('recipe.color'), value: selectedRecipe.saturation },
-                            { label: t('recipe.sharpness'), value: selectedRecipe.sharpness },
-                            { label: t('recipe.noiseReduction'), value: selectedRecipe.noiseReduction },
-                            { label: t('recipe.clarity'), value: selectedRecipe.clarity },
-                            { label: t('recipe.grainRoughness'), value: grainRoughness },
-                            { label: t('recipe.grainSize'), value: grainSize },
-                            { label: t('recipe.colorChrome'), value: selectedRecipe.colorChromeEffect },
-                            { label: t('recipe.fxBlue'), value: selectedRecipe.colorChromeEffectBlue },
-                            { label: t('recipe.wbRed'), value: wbRed },
-                            { label: t('recipe.wbBlue'), value: wbBlue },
+                            { key: 'whiteBalance', label: t('recipe.whiteBalance'), value: selectedRecipe.whiteBalance },
+                            { key: 'dynamicRange', label: t('recipe.dynamicRange'), value: selectedRecipe.dynamicRange },
+                            { key: 'highlightTone', label: t('recipe.highlight'), value: selectedRecipe.highlightTone },
+                            { key: 'shadowTone', label: t('recipe.shadow'), value: selectedRecipe.shadowTone },
+                            { key: 'saturation', label: t('recipe.color'), value: selectedRecipe.saturation },
+                            { key: 'sharpness', label: t('recipe.sharpness'), value: selectedRecipe.sharpness },
+                            { key: 'noiseReduction', label: t('recipe.noiseReduction'), value: selectedRecipe.noiseReduction },
+                            { key: 'clarity', label: t('recipe.clarity'), value: selectedRecipe.clarity },
+                            { key: 'grainEffect', label: t('recipe.grainRoughness'), value: grainRoughness },
+                            { key: 'grainEffect', label: t('recipe.grainSize'), value: grainSize },
+                            { key: 'colorChromeEffect', label: t('recipe.colorChrome'), value: selectedRecipe.colorChromeEffect },
+                            { key: 'colorChromeEffectBlue', label: t('recipe.fxBlue'), value: selectedRecipe.colorChromeEffectBlue },
+                            { key: 'whiteBalanceShift', label: t('recipe.wbRed'), value: wbRed },
+                            { key: 'whiteBalanceShift', label: t('recipe.wbBlue'), value: wbBlue },
                           ].map(stat => (
-                            <FilmSettingCard key={stat.label} label={stat.label} value={stat.value} />
+                            renderMappableCard(`${stat.key}-${stat.label}`, stat.key, stat.label, stat.value)
                           ))
                         )}
                       </div>

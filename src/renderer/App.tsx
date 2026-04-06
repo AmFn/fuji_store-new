@@ -68,6 +68,7 @@ import { MetadataParserView } from './components/views/MetadataParserView';
 import { RecipeView } from './components/views/RecipeView';
 import { TimelineView } from './components/views/TimelineView';
 import { TemplatesView } from './components/views/TemplatesView';
+import defaultConfig from './constants/metadata-default-config.json';
 
 // Mock User Type
 interface User {
@@ -104,7 +105,7 @@ export default function App() {
   });
   const [configLoaded, setConfigLoaded] = useState(false);
   
-  const DEFAULT_DISPLAY_CONFIG = {
+  const DEFAULT_DISPLAY_CONFIG = defaultConfig.displayConfig || {
     photoList: ['filmSimulation', 'whiteBalance'],
     photoDetail: ['filmSimulation', 'whiteBalance', 'dynamicRange', 'sharpness', 'saturation', 'contrast', 'highlightTone', 'shadowTone', 'noiseReduction', 'clarity', 'grainEffect', 'colorChromeEffect', 'colorChromeEffectBlue'],
     recipeList: ['filmSimulation', 'whiteBalance', 'dynamicRange'],
@@ -485,7 +486,6 @@ export default function App() {
       if (window.electronAPI?.recognizeRecipe) {
         const recipe = await window.electronAPI.recognizeRecipe(photo.filePath);
         if (recipe) {
-          // 处理识别到的食谱
           console.log('Recognized recipe:', recipe);
           alert('Recipe recognized successfully!');
         } else {
@@ -497,6 +497,71 @@ export default function App() {
     } catch (err) {
       console.error('Error recognizing recipe:', err);
       alert('Failed to recognize recipe.');
+    }
+  };
+
+  const handleReParse = async (photo: Photo) => {
+    try {
+      if (window.electronAPI?.parseMetadata) {
+        const metadata = await window.electronAPI.parseMetadata(photo.filePath);
+        if (metadata) {
+          console.log('[handleReParse] Raw metadata:', metadata);
+          
+          const parseDateTime = (dt: any): string | undefined => {
+            if (!dt) return undefined;
+            if (typeof dt === 'string') {
+              const normalized = dt.replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T');
+              return normalized;
+            }
+            if (dt instanceof Date) return dt.toISOString();
+            if (typeof dt === 'object') {
+              if (dt.year && dt.month && dt.day) {
+                const pad = (n: number) => String(n).padStart(2, '0');
+                let result = `${dt.year}-${pad(dt.month)}-${pad(dt.day)}`;
+                if (dt.hour !== undefined) {
+                  result += `T${pad(dt.hour)}:${pad(dt.minute)}:${pad(dt.second)}`;
+                }
+                return result;
+              }
+              if (dt.rawValue) {
+                const normalized = String(dt.rawValue).replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T');
+                return normalized;
+              }
+              return undefined;
+            }
+            return undefined;
+          };
+          
+          let dateTimeValue: string | undefined;
+          if (metadata.DateTimeOriginal) {
+            dateTimeValue = parseDateTime(metadata.DateTimeOriginal);
+          } else if (metadata.CreateDate) {
+            dateTimeValue = parseDateTime(metadata.CreateDate);
+          } else if (metadata.FileModifyDate) {
+            dateTimeValue = parseDateTime(metadata.FileModifyDate);
+          }
+          
+          const updates = {
+            metadataJson: JSON.stringify(metadata),
+          };
+          
+          if (dateTimeValue) {
+            updates.dateTime = dateTimeValue;
+          }
+          
+          console.log('[handleReParse] Updates:', updates);
+          
+          await handleUpdatePhoto(photo.id, updates);
+          
+          setSelectedPhoto(prev => prev ? { ...prev, ...updates, metadataJson: metadata } : null);
+        } else {
+          console.warn('[handleReParse] No metadata found');
+        }
+      } else {
+        console.warn('[handleReParse] parseMetadata not available');
+      }
+    } catch (err) {
+      console.error('Error re-parsing metadata:', err);
     }
   };
 
@@ -1179,6 +1244,7 @@ export default function App() {
             recipes={recipes}
             folders={folders}
             onRecognize={handleRecognizeRecipe}
+            onReParse={handleReParse}
             theme={theme}
             allTags={tags}
             onExport={() => {
@@ -1189,6 +1255,7 @@ export default function App() {
             onDeletePhoto={handleDeletePhoto}
             onAddTag={handleAddTag}
             displayConfig={configLoaded ? displayConfig : undefined}
+            metadataFields={metadataFields}
           />
         )}
         {isImportModalOpen && (
@@ -1201,6 +1268,11 @@ export default function App() {
             initialType={importModalInitialType}
             activeFolderId={activeFolderId}
             folders={folders}
+            onImportCompleted={async () => {
+              setPhotoPage(1);
+              setHasMorePhotos(true);
+              await reload();
+            }}
           />
         )}
         {isSyncModalOpen && syncFolderId && (

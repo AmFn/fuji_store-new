@@ -72,6 +72,8 @@ declare global {
       saveMetadataToPhoto: (photoId: number, metadata: any) => Promise<boolean>;
       getDisplayConfig: () => Promise<any>;
       saveDisplayConfig: (config: any) => Promise<boolean>;
+      getMetadataFields: () => Promise<any>;
+      saveMetadataFields: (fields: any) => Promise<boolean>;
       
       // 其他
       getThumbnail: (photoPath: string, hash?: string) => Promise<{ success: boolean; thumbnailPath?: string; status?: string; error?: string }>;

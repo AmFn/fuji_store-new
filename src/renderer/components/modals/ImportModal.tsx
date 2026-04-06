@@ -22,9 +22,10 @@ interface ImportModalProps {
   initialType: 'files' | 'folders';
   activeFolderId: string | null;
   folders: Folder[];
+  onImportCompleted?: () => Promise<void> | void;
 }
 
-function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType, activeFolderId, folders }: ImportModalProps) {
+function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType, activeFolderId, folders, onImportCompleted }: ImportModalProps) {
   const { t } = useLanguage();
   const [files, setFiles] = useState<File[]>([]);
   const [selectedLocalPaths, setSelectedLocalPaths] = useState<string[]>([]);
@@ -33,6 +34,7 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
   const [folderName, setFolderName] = useState('');
   const [importMode, setImportMode] = useState<'create' | 'import'>(initialType === 'folders' ? 'create' : 'import');
   const [selectedDestFolderId, setSelectedDestFolderId] = useState<string | null>(() => {
+    if (initialType === 'folders') return activeFolderId || null;
     if (activeFolderId) return activeFolderId;
     const uncategorized = folders.find(f => f.name === '未分类');
     return uncategorized?.id || null;
@@ -71,8 +73,23 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
 
   const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setFolderPath(e.target.files[0].path);
-      setFolderName(e.target.files[0].name);
+      const firstFile = e.target.files[0] as File & { webkitRelativePath?: string };
+      if (!firstFile) return;
+      let detectedFolderPath = firstFile.path;
+      let detectedFolderName = firstFile.name;
+
+      if (firstFile.webkitRelativePath && firstFile.webkitRelativePath.includes('/')) {
+        const rootFolderName = firstFile.webkitRelativePath.split('/')[0];
+        const marker = `\\${rootFolderName}\\`;
+        const markerIndex = firstFile.path.lastIndexOf(marker);
+        if (markerIndex > 0) {
+          detectedFolderPath = firstFile.path.slice(0, markerIndex + marker.length - 1);
+          detectedFolderName = rootFolderName;
+        }
+      }
+
+      setFolderPath(detectedFolderPath);
+      setFolderName(detectedFolderName);
     }
   };
 
@@ -85,8 +102,34 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
     setProgress(0);
 
     const allowedFormats = selectedFormats.length === 2 ? null : selectedFormats;
+    let scanProgressTimer: ReturnType<typeof setInterval> | null = null;
 
     try {
+      const startScanProgressPolling = () => {
+        if (!window.electronAPI?.getScanProgress) return;
+        scanProgressTimer = setInterval(async () => {
+          try {
+            const p = await window.electronAPI.getScanProgress(folderPath || selectedLocalPaths[0] || '');
+            if (!p) return;
+            const scanned = Number(p.scanned || 0);
+            const indexed = Number(p.indexed || 0);
+            const failed = Number(p.failed || 0);
+            const processed = scanned + failed;
+            if (processed > 0) {
+              const current = Math.min(99, Math.round((indexed / processed) * 100));
+              setProgress(prev => (current > prev ? current : prev));
+            }
+          } catch {
+          }
+        }, 300);
+      };
+      const stopScanProgressPolling = () => {
+        if (scanProgressTimer) {
+          clearInterval(scanProgressTimer);
+          scanProgressTimer = null;
+        }
+      };
+
       if (importMode === 'create') {
         const newFolder = {
           name: folderName,
@@ -118,23 +161,23 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
       } else {
         if (window.electronAPI) {
           if (initialType === 'files') {
-            if (files.length > 0) {
+            const importFilePaths = files.length > 0 ? files.map(file => file.path) : selectedLocalPaths;
+            const total = importFilePaths.length;
+            for (let i = 0; i < total; i++) {
               await window.electronAPI.importFiles({
-                files: files.map(file => file.path),
+                files: [importFilePaths[i]],
                 targetFolderId: selectedDestFolderId
               });
-            } else if (selectedLocalPaths.length > 0) {
-              await window.electronAPI.importFiles({
-                files: selectedLocalPaths,
-                targetFolderId: selectedDestFolderId
-              });
+              setProgress(Math.min(99, Math.round(((i + 1) / total) * 100)));
             }
           } else if (initialType === 'folders' && folderPath) {
+            startScanProgressPolling();
             const importedFolder = await window.electronAPI.importFolder({
               folderPath,
               targetFolderId: selectedDestFolderId || null,
               allowedFormats
             });
+            stopScanProgressPolling();
             
             if (importedFolder) {
               if (window.electronAPI.createFolder) {
@@ -153,15 +196,20 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
               }
             }
           }
-          
+
+          setProgress(100);
           if (window.electronAPI.triggerLibraryUpdate) {
             await window.electronAPI.triggerLibraryUpdate();
           }
+          await onImportCompleted?.();
         }
       }
     } catch (error) {
       console.error('Error during import:', error);
     } finally {
+      if (scanProgressTimer) {
+        clearInterval(scanProgressTimer);
+      }
       setImporting(false);
       onClose();
     }

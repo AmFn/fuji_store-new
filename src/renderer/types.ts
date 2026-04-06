@@ -44,7 +44,7 @@ export interface Photo {
   grainEffectRough?: string;
   tone?: string;
   highISONoiseReduction?: string;
-  aperture?: number;
+  aperture?: string;
   shutterSpeed?: string;
   exposureCompensation?: number;
   exposureMode?: string;

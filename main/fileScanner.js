@@ -2,9 +2,142 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { normalizePath } from './db.js';
+import { ExifTool } from 'exiftool-vendored';
+import { normalizePath, getDb } from './db.js';
 
 import exifr from 'exifr';
+
+let scannerExiftool = null;
+
+function getScannerExiftool() {
+  if (!scannerExiftool) {
+    scannerExiftool = new ExifTool({ taskTimeoutMillis: 10000 });
+  }
+  return scannerExiftool;
+}
+
+function getNestedValue(obj, path) {
+  if (!path || !obj) return undefined;
+  const keys = path.split('.');
+  let value = obj;
+  for (const key of keys) {
+    if (value && typeof value === 'object' && key in value) {
+      value = value[key];
+    } else {
+      return undefined;
+    }
+  }
+  return value;
+}
+
+function applyValueMap(value, valueMap) {
+  if (!valueMap || !value) return value;
+  const key = String(value);
+  return valueMap[key] !== undefined ? valueMap[key] : value;
+}
+
+function resolveCombinedValue(metadata, field, configByKey) {
+  if (!field.isCombined || !Array.isArray(field.combinedFields) || field.combinedFields.length === 0) {
+    return undefined;
+  }
+
+  const parts = [];
+  for (const combinedKey of field.combinedFields) {
+    const subField = configByKey.get(combinedKey);
+    if (!subField?.jsonPath) continue;
+    const subValue = getNestedValue(metadata, subField.jsonPath);
+    if (subValue !== undefined && subValue !== null && subValue !== '') {
+      parts.push(String(subValue));
+    }
+  }
+
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
+function applyFieldConfig(metadata, configJson) {
+  if (!Array.isArray(configJson) || configJson.length === 0) {
+    return metadata;
+  }
+
+  const configByKey = new Map(configJson.map(field => [field.key, field]));
+  const extracted = {};
+  for (const field of configJson) {
+    if (!field?.isEnabled) continue;
+
+    let value;
+    if (field.isCombined) {
+      value = resolveCombinedValue(metadata, field, configByKey);
+    } else if (field.jsonPath) {
+      value = getNestedValue(metadata, field.jsonPath);
+    }
+
+    if (value !== undefined && value !== null && value !== '' && field.valueMap && typeof field.valueMap === 'object') {
+      value = applyValueMap(value, field.valueMap);
+    }
+
+    if (value !== undefined && value !== null && value !== '') {
+      extracted[field.key] = value;
+    }
+  }
+
+  return { ...metadata, ...extracted };
+}
+
+function serializeMetadataSafe(metadata) {
+  try {
+    return JSON.stringify(metadata, (_key, value) => {
+      if (typeof value === 'bigint') return Number(value);
+      if (value instanceof Date) return value.toISOString();
+      if (value && typeof value === 'object') {
+        if (value.rawValue !== undefined) return value.rawValue;
+        if (value.value !== undefined && (typeof value.value === 'string' || typeof value.value === 'number')) {
+          return value.value;
+        }
+      }
+      return value;
+    });
+  } catch {
+    return '{}';
+  }
+}
+
+function getExifValue(metadata, keys) {
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (value !== undefined && value !== null && value !== '') {
+      if (value && typeof value === 'object') {
+        if (value.rawValue !== undefined) return value.rawValue;
+        if (value.value !== undefined) return value.value;
+      }
+      return value;
+    }
+  }
+  return null;
+}
+
+async function getFullMetadata(filePath, configJson) {
+  try {
+    const exiftool = getScannerExiftool();
+    const rawMetadata = await exiftool.read(filePath);
+    
+    let effectiveConfig = configJson;
+    if (effectiveConfig === undefined) {
+      try {
+        const db = await getDb();
+        if (db && db.getMetadataFields) {
+          effectiveConfig = await db.getMetadataFields();
+        }
+      } catch (e) {
+        console.log('[fileScanner] Could not get metadata config:', e.message);
+      }
+    }
+    
+    return applyFieldConfig(rawMetadata, effectiveConfig);
+  } catch (error) {
+    console.error('[fileScanner] Error getting full metadata:', error);
+    return null;
+  }
+}
 
 // 添加EXIF提取功能
 async function getExifDateTime(filePath) {
@@ -125,7 +258,7 @@ export class FileScanner {
     return { ...this.progress };
   }
 
-  async #buildRecord(filePath) {
+  async #buildRecord(filePath, configJson = null) {
     const normalized = normalizePath(filePath);
     const stats = await fsp.stat(filePath);
     const signature = `${normalized}:${stats.size}:${Math.floor(stats.mtimeMs)}`;
@@ -141,14 +274,42 @@ export class FileScanner {
       }
     }
 
-    // 尝试从EXIF中提取拍摄时间
+    // 尝试从EXIF中提取拍摄时间，使用 exiftool-vendored
     let created_at = Math.floor(stats.birthtimeMs || stats.ctimeMs || stats.mtimeMs);
     let shot_at = null;
-    const exifDateTime = await getExifDateTime(filePath);
-    if (exifDateTime) {
-      shot_at = Math.floor(new Date(exifDateTime).getTime());
+    let metadata_json = '{}';
+    let film_mode = null;
+    let white_balance = null;
+    let dynamic_range = null;
+    let color_chrome = null;
+    let color_chrome_blue = null;
+    let grain_effect = null;
+    
+    try {
+      const rawMetadata = await getFullMetadata(filePath, configJson);
+      
+      if (rawMetadata) {
+        if (rawMetadata.DateTimeOriginal) {
+          const dt = new Date(String(rawMetadata.DateTimeOriginal.rawValue ?? rawMetadata.DateTimeOriginal).replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T'));
+          if (!Number.isNaN(dt.getTime())) shot_at = Math.floor(dt.getTime());
+        } else if (rawMetadata.CreateDate) {
+          const dt = new Date(String(rawMetadata.CreateDate.rawValue ?? rawMetadata.CreateDate).replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T'));
+          if (!Number.isNaN(dt.getTime())) shot_at = Math.floor(dt.getTime());
+        }
+        // 存储完整元数据（安全序列化）
+        metadata_json = serializeMetadataSafe(rawMetadata);
+        // 兼容富士字段别名
+        film_mode = getExifValue(rawMetadata, ['filmSimulation', 'filmMode', 'FilmMode', 'FujiFilm:FilmMode', 'FilmSimulation']);
+        white_balance = getExifValue(rawMetadata, ['whiteBalance', 'WhiteBalance', 'FujiFilm:WhiteBalance']);
+        dynamic_range = getExifValue(rawMetadata, ['dynamicRange', 'DynamicRange', 'FujiFilm:DynamicRange', 'DynamicRangeSetting']);
+        color_chrome = getExifValue(rawMetadata, ['ColorChromeEffect', 'FujiFilm:ColorChromeEffect']);
+        color_chrome_blue = getExifValue(rawMetadata, ['ColorChromeEffectBlue', 'FujiFilm:ColorChromeEffectBlue']);
+        grain_effect = getExifValue(rawMetadata, ['GrainEffect', 'FujiFilm:GrainEffect']);
+      }
+    } catch (e) {
+      console.log('[fileScanner] Error extracting metadata:', e.message);
     }
-
+    
     return {
       path: normalized,
       hash,
@@ -160,6 +321,13 @@ export class FileScanner {
       updated_at: Math.floor(stats.mtimeMs),
       thumbnail_status: 'pending',
       deleted: 0,
+      metadata_json,
+      film_mode: film_mode ? String(film_mode) : null,
+      white_balance: white_balance ? String(white_balance) : null,
+      dynamic_range: dynamic_range ? String(dynamic_range) : null,
+      color_chrome: color_chrome ? String(color_chrome) : null,
+      color_chrome_blue: color_chrome_blue ? String(color_chrome_blue) : null,
+      grain_effect: grain_effect ? String(grain_effect) : null,
     };
   }
 
@@ -189,6 +357,12 @@ export class FileScanner {
     } = options;
 
     const normalizedRoot = normalizePath(rootPath);
+    let metadataConfig = null;
+    try {
+      metadataConfig = await this.db.getMetadataFields();
+    } catch (error) {
+      console.warn('[fileScanner] Failed to load metadata config, fallback to raw EXIF:', error?.message || error);
+    }
     const batch = [];
     const seenPaths = new Set();
     let scannedSinceYield = 0;
@@ -228,23 +402,26 @@ export class FileScanner {
           if (skipUnchanged) {
             const stats = await fsp.stat(normalizedPath);
             const existing = await this.db.getPhotoByPath(normalizedPath);
+            const metadataMissing = existing && (
+              !existing.metadata_json ||
+              existing.metadata_json === '{}' ||
+              existing.metadata_json === 'null' ||
+              (!existing.film_mode && !existing.white_balance && !existing.dynamic_range)
+            );
             if (
               existing &&
               existing.deleted === 0 &&
               Number(existing.size) === Number(stats.size) &&
-              Number(existing.updated_at) === Math.floor(stats.mtimeMs)
+              Number(existing.updated_at) === Math.floor(stats.mtimeMs) &&
+              !metadataMissing
             ) {
               this.progress.skipped += 1;
               continue;
             }
-            // 如果文件被软删除，跳过，不恢复
-            if (existing && existing.deleted === 1) {
-              this.progress.skipped += 1;
-              continue;
-            }
+            // 如果文件被软删除，允许继续走构建记录并 upsert，以便导入时恢复显示
           }
 
-          const record = await this.#buildRecord(normalizedPath);
+          const record = await this.#buildRecord(normalizedPath, metadataConfig);
           batch.push(record);
         } catch (error) {
           this.progress.failed += 1;
@@ -297,6 +474,12 @@ export class FileScanner {
 
     const { recursive = true, signal } = options;
     const normalizedRoot = normalizePath(rootPath);
+    let metadataConfig = null;
+    try {
+      metadataConfig = await this.db.getMetadataFields();
+    } catch (error) {
+      console.warn('[fileScanner] Failed to load metadata config, fallback to raw EXIF:', error?.message || error);
+    }
     const newFiles = [];
     const seenPaths = new Set();
 
@@ -336,14 +519,14 @@ export class FileScanner {
           // 如果文件不存在，或者已被软删除，视为新文件
           if (!existing || existing.deleted === 1) {
             // 构建文件记录
-            const record = await this.#buildRecord(normalizedPath);
+            const record = await this.#buildRecord(normalizedPath, metadataConfig);
             newFiles.push({
               id: crypto.randomUUID(),
               fileName: path.basename(normalizedPath),
               path: normalizedPath,
               size: `${(record.size / (1024 * 1024)).toFixed(1)} MB`,
               date: new Date(record.created_at).toISOString().split('T')[0],
-              filmMode: 'Unknown' // 实际项目中应该从EXIF或其他来源获取
+              filmMode: record.film_mode || 'Unknown'
             });
           } else {
             // 文件已存在且未被删除，跳过
