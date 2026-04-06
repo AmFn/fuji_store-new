@@ -64,6 +64,7 @@ import { RecipeExportModal } from './components/modals/RecipeExportModal';
 import { StatsView } from './components/views/StatsView';
 import { TagsView } from './components/views/TagsView';
 import { SettingsView } from './components/views/SettingsView';
+import { MetadataParserView } from './components/views/MetadataParserView';
 import { RecipeView } from './components/views/RecipeView';
 import { TimelineView } from './components/views/TimelineView';
 import { TemplatesView } from './components/views/TemplatesView';
@@ -92,7 +93,79 @@ export default function App() {
   } as any);
   
   // View state
-  const [activeView, setActiveView] = useState<'photos' | 'timeline' | 'recipes' | 'stats' | 'settings' | 'favorites' | 'hidden' | 'tags' | 'posters' | 'templates'>('photos');
+  const [activeView, setActiveView] = useState<'photos' | 'timeline' | 'recipes' | 'stats' | 'settings' | 'favorites' | 'hidden' | 'tags' | 'posters' | 'templates' | 'metadataParser'>('photos');
+  const [previousView, setPreviousView] = useState<'photos' | 'timeline' | 'recipes' | 'stats' | 'settings' | 'favorites' | 'hidden' | 'tags' | 'posters' | 'templates'>('settings');
+  const [metadataFields, setMetadataFields] = useState<any[]>([]);
+  const [displayConfig, setDisplayConfig] = useState<Record<string, string[]>>({
+    photoList: [],
+    photoDetail: [],
+    recipeList: [],
+    recipeDetail: [],
+  });
+  const [configLoaded, setConfigLoaded] = useState(false);
+  
+  const DEFAULT_DISPLAY_CONFIG = {
+    photoList: ['filmSimulation', 'whiteBalance'],
+    photoDetail: ['filmSimulation', 'whiteBalance', 'dynamicRange', 'sharpness', 'saturation', 'contrast', 'highlightTone', 'shadowTone', 'noiseReduction', 'clarity', 'grainEffect', 'colorChromeEffect', 'colorChromeEffectBlue'],
+    recipeList: ['filmSimulation', 'whiteBalance', 'dynamicRange'],
+    recipeDetail: ['filmSimulation', 'whiteBalance', 'dynamicRange', 'sharpness', 'saturation', 'contrast', 'highlightTone', 'shadowTone', 'noiseReduction', 'clarity', 'grainEffect', 'colorChromeEffect', 'colorChromeEffectBlue', 'whiteBalanceShift'],
+  };
+  
+  // 启动时从数据库加载配置
+  useEffect(() => {
+    const loadDisplayConfig = async () => {
+      if (window.electronAPI?.getDisplayConfig) {
+        const dbConfig = await window.electronAPI.getDisplayConfig();
+        if (dbConfig) {
+          console.log('[App] Loaded display config from database:', dbConfig);
+          setDisplayConfig(dbConfig);
+          setConfigLoaded(true);
+        } else {
+          const localConfig = localStorage.getItem('fuji_metadata_display_config');
+          if (localConfig) {
+            try {
+              const parsed = JSON.parse(localConfig);
+              setDisplayConfig(parsed);
+              await window.electronAPI.saveDisplayConfig(parsed);
+              console.log('[App] Synced local config to database');
+            } catch (e) {
+              console.error('[App] Error parsing local config:', e);
+              setDisplayConfig(DEFAULT_DISPLAY_CONFIG);
+              await window.electronAPI.saveDisplayConfig(DEFAULT_DISPLAY_CONFIG);
+            }
+          } else {
+            setDisplayConfig(DEFAULT_DISPLAY_CONFIG);
+            await window.electronAPI.saveDisplayConfig(DEFAULT_DISPLAY_CONFIG);
+            console.log('[App] Saved default config to database');
+          }
+          setConfigLoaded(true);
+        }
+      } else {
+        const localConfig = localStorage.getItem('fuji_metadata_display_config');
+        if (localConfig) {
+          try {
+            const parsed = JSON.parse(localConfig);
+            setDisplayConfig(parsed);
+          } catch (e) {
+            setDisplayConfig(DEFAULT_DISPLAY_CONFIG);
+          }
+        } else {
+          setDisplayConfig(DEFAULT_DISPLAY_CONFIG);
+        }
+        setConfigLoaded(true);
+      }
+    };
+    loadDisplayConfig();
+  }, []);
+  
+  // 保存配置到数据库和本地
+  const handleDisplayConfigChange = useCallback(async (newConfig: Record<string, string[]>) => {
+    setDisplayConfig(newConfig);
+    localStorage.setItem('fuji_metadata_display_config', JSON.stringify(newConfig));
+    if (window.electronAPI?.saveDisplayConfig) {
+      await window.electronAPI.saveDisplayConfig(newConfig);
+    }
+  }, []);
   
   // Modal states
   const [importModalInitialType, setImportModalInitialType] = useState<'files' | 'folders'>('files');
@@ -155,6 +228,7 @@ export default function App() {
     thumbnailDir,
     loading,
     error,
+    bootProgress,
     reload
   } = usePhotoLibrary();
   
@@ -902,8 +976,21 @@ export default function App() {
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-8">
           {loading ? (
-            <div className="py-20 text-center text-xs font-black uppercase tracking-widest text-slate-400">
-              {t('loading')}
+            <div className="py-20 max-w-xl mx-auto space-y-4">
+              <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <span>{bootProgress.text || t('loading')}</span>
+                <span>{bootProgress.percent}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-slate-500/10 overflow-hidden border border-[var(--border-color)]">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-200"
+                  style={{ width: `${bootProgress.percent}%` }}
+                />
+              </div>
+              <div className="text-center text-[10px] font-black uppercase tracking-widest text-slate-500">
+                {bootProgress.completed}/{bootProgress.total || 0}
+                {bootProgress.failed > 0 ? ` · 跳过 ${bootProgress.failed}` : ''}
+              </div>
             </div>
           ) : error ? (
             <div className="py-20 text-center space-y-4">
@@ -935,7 +1022,7 @@ export default function App() {
                   }} 
                 />
               ) : activeView === 'recipes' ? (
-                <RecipeView key="recipes" recipes={recipes} photos={photos} user={user} theme={theme} onRecipesChange={handleRecipesChange} />
+                <RecipeView key="recipes" recipes={recipes} photos={photos} user={user} theme={theme} onRecipesChange={handleRecipesChange} metadataFields={metadataFields} displayConfig={configLoaded ? displayConfig : undefined} />
               ) : activeView === 'timeline' ? (
                 timelineLoading ? (
                   <div className="py-20 text-center text-xs font-black uppercase tracking-widest text-slate-400">
@@ -978,6 +1065,21 @@ export default function App() {
                       await window.electronAPI.setThumbnailDir(dir);
                     }
                   }}
+                  onOpenMetadataParser={() => {
+                    setPreviousView('settings');
+                    setActiveView('metadataParser');
+                  }}
+                />
+              ) : activeView === 'metadataParser' ? (
+                <MetadataParserView 
+                  key="metadataParser"
+                  onBack={() => {
+                    setActiveView(previousView || 'settings');
+                  }}
+                  onFieldsChange={(fields) => {
+                    setMetadataFields(fields);
+                  }}
+                  onDisplayConfigChange={handleDisplayConfigChange}
                 />
               ) : (
                 <div className="space-y-12">
@@ -1039,10 +1141,11 @@ export default function App() {
                         key={photo.id} 
                         photo={photo} 
                         mode={viewMode} 
-                        onClick={() => setSelectedPhoto(photo)} 
+                        onClick={() => configLoaded && setSelectedPhoto(photo)} 
                         theme={theme}
                         onToggleFavorite={handleToggleFavorite}
                         onDeletePhoto={handleDeletePhoto}
+                        displayConfig={configLoaded ? displayConfig : undefined}
                       />
                     ))}
                     {loadingMorePhotos && (
@@ -1085,6 +1188,7 @@ export default function App() {
             onUpdatePhoto={handleUpdatePhoto}
             onDeletePhoto={handleDeletePhoto}
             onAddTag={handleAddTag}
+            displayConfig={configLoaded ? displayConfig : undefined}
           />
         )}
         {isImportModalOpen && (

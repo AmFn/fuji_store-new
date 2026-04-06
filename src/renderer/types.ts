@@ -26,6 +26,7 @@ export interface Photo {
   grainEffect?: string;
   colorChromeEffect?: string;
   colorChromeEffectBlue?: string;
+  metadataJson?: any;
   isFavorite: boolean;
   isHidden: boolean;
   isRecipeDisplay: boolean;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sun, Moon, Trash2, RotateCcw, Check, X, FolderOpen } from 'lucide-react';
+import { Sun, Moon, Trash2, RotateCcw, Check, X, FolderOpen, Settings as SettingsIcon } from 'lucide-react';
 import { ConfirmModal } from '../modals/ConfirmModal';
 import { useLanguage } from '../../hooks/useLanguage';
 
@@ -10,6 +10,7 @@ interface SettingsViewProps {
   setCloudSyncEnabled: (v: boolean) => void;
   thumbnailDir?: string;
   onCacheDirChange?: (dir: string) => void;
+  onOpenMetadataParser?: () => void;
 }
 
 export function SettingsView({ 
@@ -18,7 +19,8 @@ export function SettingsView({
   cloudSyncEnabled,
   setCloudSyncEnabled,
   thumbnailDir,
-  onCacheDirChange
+  onCacheDirChange,
+  onOpenMetadataParser
 }: SettingsViewProps) {
   const { t, language, setLanguage } = useLanguage();
   const [showClearPhotosConfirm, setShowClearPhotosConfirm] = useState<boolean>(false);
@@ -160,6 +162,22 @@ export function SettingsView({
                   <p className="text-xs">{t('settings.clearAllPhotosDesc')}</p>
                 </div>
                 <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+          </section>
+
+          <section className="glass-card rounded-3xl p-6">
+            <h3 className="text-xl font-bold mb-6">{t('settings.metadataParser') || '元数据解析配置'}</h3>
+            <div className="space-y-4">
+              <button 
+                onClick={onOpenMetadataParser}
+                className="w-full flex items-center justify-between p-4 border border-[var(--border-color)] rounded-2xl hover:bg-slate-500/5 transition-all"
+              >
+                <div>
+                  <h4 className="font-semibold">{t('settings.metadataParserConfig') || '配置元数据映射'}</h4>
+                  <p className="text-xs text-slate-400">{t('settings.metadataParserDesc') || '上传图片并配置胶片模拟参数提取规则'}</p>
+                </div>
+                <SettingsIcon className="w-5 h-5 text-slate-400" />
               </button>
             </div>
           </section>

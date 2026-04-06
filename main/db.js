@@ -225,6 +225,33 @@ export class PhotoDatabase {
         FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS metadata_mapping_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        field_name TEXT NOT NULL UNIQUE,
+        json_path TEXT NOT NULL,
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS metadata_presets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        config_json TEXT NOT NULL DEFAULT '{}',
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS metadata_display_configs (
+        id INTEGER PRIMARY KEY,
+        config_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
     `);
 
     this.#migrateLegacySchema();
@@ -690,6 +717,8 @@ export class PhotoDatabase {
       CREATE INDEX IF NOT EXISTS idx_recipes_owner_id ON recipes(owner_id);
       CREATE INDEX IF NOT EXISTS idx_photo_recipes_photo_id ON photo_recipes(photo_id);
       CREATE INDEX IF NOT EXISTS idx_photo_recipes_recipe_id ON photo_recipes(recipe_id);
+      CREATE INDEX IF NOT EXISTS idx_metadata_configs_field ON metadata_mapping_configs(field_name);
+      CREATE INDEX IF NOT EXISTS idx_metadata_presets_default ON metadata_presets(is_default);
     `);
 
     const folderCols = this.db.prepare("PRAGMA table_info(folders)").all();
@@ -1286,6 +1315,10 @@ export class PhotoDatabase {
       parts.push('tags_json = @tags_json');
       params.tags_json = JSON.stringify(Array.isArray(patch.tags) ? patch.tags : []);
     }
+    if (this.compat.hasMetadataJson && patch.metadataJson !== undefined) {
+      parts.push('metadata_json = @metadata_json');
+      params.metadata_json = typeof patch.metadataJson === 'string' ? patch.metadataJson : JSON.stringify(patch.metadataJson);
+    }
     if (patch.folderId !== undefined || patch.folder_id !== undefined) {
       const folderIdRaw = patch.folder_id ?? patch.folderId;
       const folderId = folderIdRaw === null || folderIdRaw === '' ? null : Number(folderIdRaw);
@@ -1302,6 +1335,26 @@ export class PhotoDatabase {
   async markPhotoDeletedById(id) {
     const result = this.db.prepare('UPDATE photos SET deleted = 1, updated_at = ? WHERE id = ?').run(Date.now(), Number(id));
     return result.changes;
+  }
+
+  async saveMetadataToPhoto(photoId, metadataJson) {
+    const metadataStr = typeof metadataJson === 'string' ? metadataJson : JSON.stringify(metadataJson);
+    const result = this.db.prepare(`
+      UPDATE photos SET metadata_json = ?, updated_at = ? WHERE id = ?
+    `).run(metadataStr, Date.now(), Number(photoId));
+    return result.changes;
+  }
+
+  async getPhotoMetadata(photoId) {
+    const row = this.db.prepare('SELECT metadata_json FROM photos WHERE id = ?').get(Number(photoId));
+    if (row && row.metadata_json) {
+      try {
+        return JSON.parse(row.metadata_json);
+      } catch {
+        return row.metadata_json;
+      }
+    }
+    return null;
   }
 
   async deletePhoto(id) {
@@ -1569,6 +1622,104 @@ export class PhotoDatabase {
       totalPages: Math.ceil(photos.length / pageSize),
       items: photos.slice(offset, offset + pageSize),
     };
+  }
+
+  // ==================== 元数据映射配置操作 ====================
+
+  async getAllMappingConfigs() {
+    return this.db.prepare('SELECT * FROM metadata_mapping_configs ORDER BY field_name').all();
+  }
+
+  async getMappingConfigByField(fieldName) {
+    return this.db.prepare('SELECT * FROM metadata_mapping_configs WHERE field_name = ?').get(fieldName);
+  }
+
+  async upsertMappingConfig(fieldName, jsonPath, name = '') {
+    const now = Date.now();
+    const existing = this.getMappingConfigByField(fieldName);
+    
+    if (existing) {
+      this.db.prepare(`
+        UPDATE metadata_mapping_configs 
+        SET json_path = ?, name = ?, updated_at = ?
+        WHERE field_name = ?
+      `).run(jsonPath, name, now, fieldName);
+      return this.getMappingConfigByField(fieldName);
+    } else {
+      this.db.prepare(`
+        INSERT INTO metadata_mapping_configs (name, field_name, json_path, is_enabled, created_at, updated_at)
+        VALUES (?, ?, ?, 1, ?, ?)
+      `).run(name || fieldName, fieldName, jsonPath, now, now);
+      return this.getMappingConfigByField(fieldName);
+    }
+  }
+
+  async deleteMappingConfig(fieldName) {
+    return this.db.prepare('DELETE FROM metadata_mapping_configs WHERE field_name = ?').run(fieldName);
+  }
+
+  async getAllPresets() {
+    return this.db.prepare('SELECT * FROM metadata_presets ORDER BY is_default DESC, name').all();
+  }
+
+  async getPresetById(id) {
+    return this.db.prepare('SELECT * FROM metadata_presets WHERE id = ?').get(Number(id));
+  }
+
+  async getDefaultPreset() {
+    return this.db.prepare('SELECT * FROM metadata_presets WHERE is_default = 1').get();
+  }
+
+  async upsertPreset(name, configJson, description = '', isDefault = false) {
+    const now = Date.now();
+    
+    if (isDefault) {
+      this.db.prepare('UPDATE metadata_presets SET is_default = 0').run();
+    }
+    
+    const existing = this.db.prepare('SELECT * FROM metadata_presets WHERE name = ?').get(name);
+    
+    if (existing) {
+      this.db.prepare(`
+        UPDATE metadata_presets 
+        SET description = ?, config_json = ?, is_default = ?, updated_at = ?
+        WHERE name = ?
+      `).run(description, JSON.stringify(configJson), isDefault ? 1 : 0, now, name);
+      return this.db.prepare('SELECT * FROM metadata_presets WHERE name = ?').get(name);
+    } else {
+      this.db.prepare(`
+        INSERT INTO metadata_presets (name, description, config_json, is_default, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(name, description, JSON.stringify(configJson), isDefault ? 1 : 0, now, now);
+      return this.db.prepare('SELECT * FROM metadata_presets WHERE name = ?').get(name);
+    }
+  }
+
+  async deletePreset(id) {
+    return this.db.prepare('DELETE FROM metadata_presets WHERE id = ?').run(Number(id));
+  }
+
+  async getDisplayConfig() {
+    const row = this.db.prepare('SELECT config_json FROM metadata_display_configs WHERE id = 1').get();
+    if (row && row.config_json) {
+      try {
+        return JSON.parse(row.config_json);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async saveDisplayConfig(configJson) {
+    const configStr = typeof configJson === 'string' ? configJson : JSON.stringify(configJson);
+    const existing = this.db.prepare('SELECT id FROM metadata_display_configs WHERE id = 1').get();
+    if (existing) {
+      this.db.prepare('UPDATE metadata_display_configs SET config_json = ?, updated_at = ? WHERE id = 1').run(configStr, Date.now());
+    } else {
+      this.db.prepare('INSERT INTO metadata_display_configs (id, config_json, created_at, updated_at) VALUES (1, ?, ?, ?)').run(configStr, Date.now(), Date.now());
+    }
+    return true;
   }
 
   close() {

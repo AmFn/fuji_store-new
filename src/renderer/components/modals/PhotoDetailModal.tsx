@@ -21,6 +21,7 @@ interface PhotoDetailModalProps {
   onUpdatePhoto: (id: string, updates: Partial<Photo>) => void;
   onDeletePhoto: (id: string) => void;
   onAddTag: (tag: Tag) => void;
+  displayConfig?: Record<string, string[]>;
 }
 
 export function PhotoDetailModal({
@@ -34,13 +35,23 @@ export function PhotoDetailModal({
   onExport,
   onUpdatePhoto,
   onDeletePhoto,
-  onAddTag
+  onAddTag,
+  displayConfig = {}
 }: PhotoDetailModalProps) {
   const { t } = useLanguage();
   const [isFavorite, setIsFavorite] = useState(photo.isFavorite);
   const [isHidden, setIsHidden] = useState(photo.isHidden);
   const [photoTags, setPhotoTags] = useState<Tag[]>([]);
   const [newTag, setNewTag] = useState('');
+  
+  const metadataJson = photo.metadataJson ? (typeof photo.metadataJson === 'string' ? JSON.parse(photo.metadataJson) : photo.metadataJson) : null;
+  const photoDetailConfig = displayConfig.photoDetail || [];
+  
+  const getMetadataValue = (key: string): string => {
+    if (!metadataJson) return '';
+    return metadataJson[key] || '';
+  };
+  
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
@@ -223,24 +234,52 @@ export function PhotoDetailModal({
                   <div className="flex items-center justify-between">
                     <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{t('photoDetail.filmSettings')}</h3>
                     <div className="px-3 py-1 bg-blue-500/10 text-blue-500 rounded-full text-[8px] font-black uppercase tracking-widest border border-blue-500/20">
-                      {photo.filmMode || 'Provia'}
+                      {getMetadataValue('filmSimulation') || getMetadataValue('FilmMode') || photo.filmMode || 'Provia'}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <FilmSettingCard label={t('recipe.whiteBalance')} value={photo.whiteBalance} />
-                    <FilmSettingCard label={t('recipe.dynamicRange')} value={photo.dynamicRange} />
-                    <FilmSettingCard label={t('recipe.highlight')} value={photo.highlightTone} />
-                    <FilmSettingCard label={t('recipe.shadow')} value={photo.shadowTone} />
-                    <FilmSettingCard label={t('recipe.color')} value={photo.saturation} />
-                    <FilmSettingCard label={t('recipe.sharpness')} value={photo.sharpness} />
-                    <FilmSettingCard label={t('recipe.noiseReduction')} value={photo.noiseReduction} />
-                    <FilmSettingCard label={t('recipe.clarity')} value={photo.clarity} />
-                    <FilmSettingCard label={t('recipe.grainRoughness')} value={grainRoughness} />
-                    <FilmSettingCard label={t('recipe.grainSize')} value={grainSize} />
-                    <FilmSettingCard label={t('recipe.colorChrome')} value={photo.colorChromeEffect} />
-                    <FilmSettingCard label={t('recipe.fxBlue')} value={photo.colorChromeEffectBlue} />
-                    <FilmSettingCard label={t('recipe.wbRed')} value={wbRed} />
-                    <FilmSettingCard label={t('recipe.wbBlue')} value={wbBlue} />
+                    {photoDetailConfig.includes('whiteBalance') && (
+                      <FilmSettingCard label={t('recipe.whiteBalance')} value={getMetadataValue('whiteBalance') || getMetadataValue('WhiteBalance') || photo.whiteBalance} />
+                    )}
+                    {photoDetailConfig.includes('dynamicRange') && (
+                      <FilmSettingCard label={t('recipe.dynamicRange')} value={getMetadataValue('dynamicRange') || getMetadataValue('DynamicRange') || photo.dynamicRange} />
+                    )}
+                    {photoDetailConfig.includes('highlightTone') && (
+                      <FilmSettingCard label={t('recipe.highlight')} value={getMetadataValue('highlightTone') || getMetadataValue('Highlight') || photo.highlightTone} />
+                    )}
+                    {photoDetailConfig.includes('shadowTone') && (
+                      <FilmSettingCard label={t('recipe.shadow')} value={getMetadataValue('shadowTone') || getMetadataValue('Shadow') || photo.shadowTone} />
+                    )}
+                    {photoDetailConfig.includes('saturation') && (
+                      <FilmSettingCard label={t('recipe.color')} value={getMetadataValue('saturation') || getMetadataValue('Saturation') || photo.saturation} />
+                    )}
+                    {photoDetailConfig.includes('sharpness') && (
+                      <FilmSettingCard label={t('recipe.sharpness')} value={getMetadataValue('sharpness') || getMetadataValue('Sharpness') || photo.sharpness} />
+                    )}
+                    {photoDetailConfig.includes('noiseReduction') && (
+                      <FilmSettingCard label={t('recipe.noiseReduction')} value={getMetadataValue('noiseReduction') || getMetadataValue('NoiseReduction') || photo.noiseReduction} />
+                    )}
+                    {photoDetailConfig.includes('clarity') && (
+                      <FilmSettingCard label={t('recipe.clarity')} value={getMetadataValue('clarity') || getMetadataValue('Clarity') || photo.clarity} />
+                    )}
+                    {photoDetailConfig.includes('grainEffect') && (
+                      <>
+                        <FilmSettingCard label={t('recipe.grainRoughness')} value={getMetadataValue('grainEffect') || getMetadataValue('GrainEffect') || grainRoughness} />
+                        <FilmSettingCard label={t('recipe.grainSize')} value={grainSize} />
+                      </>
+                    )}
+                    {photoDetailConfig.includes('colorChromeEffect') && (
+                      <FilmSettingCard label={t('recipe.colorChrome')} value={getMetadataValue('colorChromeEffect') || getMetadataValue('ColorChromeEffect') || photo.colorChromeEffect} />
+                    )}
+                    {photoDetailConfig.includes('colorChromeEffectBlue') && (
+                      <FilmSettingCard label={t('recipe.fxBlue')} value={getMetadataValue('colorChromeEffectBlue') || getMetadataValue('ColorChromeEffectBlue') || photo.colorChromeEffectBlue} />
+                    )}
+                    {photoDetailConfig.includes('whiteBalanceShift') && (
+                      <>
+                        <FilmSettingCard label={t('recipe.wbRed')} value={wbRed} />
+                        <FilmSettingCard label={t('recipe.wbBlue')} value={wbBlue} />
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

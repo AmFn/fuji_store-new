@@ -14,10 +14,19 @@ interface PhotoCardProps {
   theme: string;
   onToggleFavorite: (id: string) => void;
   onDeletePhoto: (id: string) => void;
+  displayConfig?: Record<string, string[]>;
 }
 
-export const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, onDeletePhoto }: PhotoCardProps) => {
+export const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavorite, onDeletePhoto, displayConfig = {} }: PhotoCardProps) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  const metadataJson = photo.metadataJson ? (typeof photo.metadataJson === 'string' ? JSON.parse(photo.metadataJson) : photo.metadataJson) : null;
+  const photoListConfig = displayConfig.photoList || [];
+  
+  const getMetadataValue = (key: string): string => {
+    if (!metadataJson) return '';
+    return metadataJson[key] || '';
+  };
   
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('photoId', photo.id);
@@ -62,9 +71,20 @@ export const PhotoCard = React.memo(({ photo, mode, onClick, theme, onToggleFavo
             </div>
             <div className="flex items-center gap-4 text-xs text-slate-400 mt-2">
               <span className="flex items-center gap-1.5 bg-blue-500/10 text-blue-500 px-2 py-1 rounded-md">{photo.cameraModel}</span>
-              <span className="px-2 py-1 bg-slate-500/10 text-slate-600 dark:text-slate-300 rounded-md font-black text-[10px] uppercase tracking-widest">
-                {FILM_SHORT_CODES[photo.filmMode || ''] || '??'}
-              </span>
+              {photoListConfig.includes('filmSimulation') ? (
+                <span className="px-2 py-1 bg-slate-500/10 text-slate-600 dark:text-slate-300 rounded-md font-black text-[10px] uppercase tracking-widest">
+                  {getMetadataValue('filmSimulation') || getMetadataValue('FilmMode') || FILM_SHORT_CODES[photo.filmMode || ''] || '??'}
+                </span>
+              ) : (
+                <span className="px-2 py-1 bg-slate-500/10 text-slate-600 dark:text-slate-300 rounded-md font-black text-[10px] uppercase tracking-widest">
+                  {FILM_SHORT_CODES[photo.filmMode || ''] || '??'}
+                </span>
+              )}
+              {photoListConfig.includes('whiteBalance') && (
+                <span className="px-2 py-1 bg-slate-500/10 text-slate-600 dark:text-slate-300 rounded-md text-[10px]">
+                  {getMetadataValue('whiteBalance') || getMetadataValue('WhiteBalance') || ''}
+                </span>
+              )}
               <span>{new Date(photo.dateTime || '').toLocaleDateString()}</span>
             </div>
           </div>

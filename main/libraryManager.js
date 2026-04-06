@@ -4,6 +4,7 @@ import { PhotoDatabase, normalizePath } from './db.js';
 import { FileScanner } from './fileScanner.js';
 import { FileWatcher } from './fileWatcher.js';
 import { ThumbnailQueue } from './thumbnailQueue.js';
+import { parseMetadata } from './exifToolService.js';
 
 export class LibraryManager extends EventEmitter {
   static async create({
@@ -336,4 +337,42 @@ export function registerLibraryIpc(ipcMain, manager) {
   ipcMain.handle('library:remove-recipe-from-photo', async (_evt, photoId, recipeId) => manager.removeRecipeFromPhoto(photoId, recipeId));
   ipcMain.handle('library:set-photo-recipe', async (_evt, photoId, recipeId) => manager.setPhotoRecipe(photoId, recipeId));
   ipcMain.handle('library:get-photos-by-recipe', async (_evt, recipeId, page, pageSize) => manager.getPhotosByRecipeId(recipeId, page, pageSize));
+
+  ipcMain.handle('parse-metadata', async (_evt, filePath) => {
+    try {
+      const metadata = await parseMetadata(filePath);
+      return metadata;
+    } catch (error) {
+      console.error('[IPC] Error parsing metadata:', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle('save-metadata-to-photo', async (_evt, photoId, metadataJson) => {
+    try {
+      manager.db.saveMetadataToPhoto(photoId, metadataJson);
+      return true;
+    } catch (error) {
+      console.error('[IPC] Error saving metadata to photo:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('get-display-config', async () => {
+    try {
+      return await manager.db.getDisplayConfig();
+    } catch (error) {
+      console.error('[IPC] Error getting display config:', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle('save-display-config', async (_evt, configJson) => {
+    try {
+      return await manager.db.saveDisplayConfig(configJson);
+    } catch (error) {
+      console.error('[IPC] Error saving display config:', error);
+      return false;
+    }
+  });
 }

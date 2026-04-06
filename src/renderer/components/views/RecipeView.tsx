@@ -18,6 +18,8 @@ interface RecipeViewProps {
   user: User | null;
   theme: string;
   onRecipesChange: (recipes: Recipe[]) => void;
+  metadataFields?: { key: string; label: string; labelKey?: string; isEnabled: boolean }[];
+  displayConfig?: Record<string, string[]>;
 }
 
 const DEFAULT_RECIPE_FORM: Partial<Recipe> = {
@@ -62,8 +64,25 @@ const getClosestAspectOption = (width: number, height: number) => {
   }, CAROUSEL_ASPECT_OPTIONS[0]);
 };
 
-export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: RecipeViewProps) {
+export function RecipeView({ recipes, photos, user, theme, onRecipesChange, metadataFields = [], displayConfig = {} }: RecipeViewProps) {
   const { t } = useLanguage();
+  
+  const DEFAULT_FIELDS = [
+    { key: 'whiteBalance', labelKey: 'recipe.whiteBalance', value: (r: any) => r.whiteBalance },
+    { key: 'dynamicRange', labelKey: 'recipe.dynamicRange', value: (r: any) => r.dynamicRange },
+    { key: 'highlightTone', labelKey: 'recipe.highlight', value: (r: any) => r.highlightTone },
+    { key: 'shadowTone', labelKey: 'recipe.shadow', value: (r: any) => r.shadowTone },
+    { key: 'saturation', labelKey: 'recipe.color', value: (r: any) => r.saturation },
+    { key: 'sharpness', labelKey: 'recipe.sharpness', value: (r: any) => r.sharpness },
+    { key: 'noiseReduction', labelKey: 'recipe.noiseReduction', value: (r: any) => r.noiseReduction },
+    { key: 'clarity', labelKey: 'recipe.clarity', value: (r: any) => r.clarity },
+    { key: 'grainEffect', labelKey: 'recipe.grainRoughness', value: (r: any) => r.grainEffect?.split(',')[0] || '' },
+    { key: 'grainEffect', labelKey: 'recipe.grainSize', value: (r: any) => r.grainEffect?.split(',')[1] || '' },
+    { key: 'colorChromeEffect', labelKey: 'recipe.colorChrome', value: (r: any) => r.colorChromeEffect },
+    { key: 'colorChromeEffectBlue', labelKey: 'recipe.fxBlue', value: (r: any) => r.colorChromeEffectBlue },
+    { key: 'whiteBalanceShift', labelKey: 'recipe.wbRed', value: () => '' },
+    { key: 'whiteBalanceShift', labelKey: 'recipe.wbBlue', value: () => '' },
+  ];
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -553,13 +572,27 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
                     </div>
                     
                     <div className="grid grid-cols-4 gap-2">
-                      <FilmTag label="WB" value={`${recipe.whiteBalance} ${recipe.whiteBalanceShift || ''}`} className="col-span-2" />
-                      <FilmTag label="DR" value={recipe.dynamicRange} />
-                      <FilmTag label="CLR" value={recipe.saturation} />
-                      <FilmTag label="TONE" value={`H${recipe.highlightTone} S${recipe.shadowTone}`} className="col-span-2" />
-                      <FilmTag label="GRAIN" value={recipe.grainEffect?.replace(', ', ' ') || 'Off'} className="col-span-2" />
-                      <FilmTag label="CHROME" value={`C${recipe.colorChromeEffect?.charAt(0)} B${recipe.colorChromeEffectBlue?.charAt(0)}`} className="col-span-2" />
-                      <FilmTag label="DETAIL" value={`S${recipe.sharpness} N${recipe.noiseReduction} C${recipe.clarity}`} className="col-span-2" />
+                      {displayConfig.recipeList?.includes('whiteBalance') && (
+                        <FilmTag label="WB" value={`${recipe.whiteBalance} ${recipe.whiteBalanceShift || ''}`} className="col-span-2" />
+                      )}
+                      {displayConfig.recipeList?.includes('dynamicRange') && (
+                        <FilmTag label="DR" value={recipe.dynamicRange} />
+                      )}
+                      {displayConfig.recipeList?.includes('saturation') && (
+                        <FilmTag label="CLR" value={recipe.saturation} />
+                      )}
+                      {displayConfig.recipeList?.includes('highlightTone') && displayConfig.recipeList?.includes('shadowTone') && (
+                        <FilmTag label="TONE" value={`H${recipe.highlightTone} S${recipe.shadowTone}`} className="col-span-2" />
+                      )}
+                      {displayConfig.recipeList?.includes('grainEffect') && (
+                        <FilmTag label="GRAIN" value={recipe.grainEffect?.replace(', ', ' ') || 'Off'} className="col-span-2" />
+                      )}
+                      {displayConfig.recipeList?.includes('colorChromeEffect') && displayConfig.recipeList?.includes('colorChromeEffectBlue') && (
+                        <FilmTag label="CHROME" value={`C${recipe.colorChromeEffect?.charAt(0)} B${recipe.colorChromeEffectBlue?.charAt(0)}`} className="col-span-2" />
+                      )}
+                      {(displayConfig.recipeList?.includes('sharpness') || displayConfig.recipeList?.includes('noiseReduction') || displayConfig.recipeList?.includes('clarity')) && (
+                        <FilmTag label="DETAIL" value={`S${recipe.sharpness} N${recipe.noiseReduction} C${recipe.clarity}`} className="col-span-2" />
+                      )}
                     </div>
 
                     <div className="mt-auto pt-6 border-t border-[var(--border-color)] flex items-center justify-between">
@@ -762,24 +795,46 @@ export function RecipeView({ recipes, photos, user, theme, onRecipesChange }: Re
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { label: t('recipe.whiteBalance'), value: selectedRecipe.whiteBalance },
-                          { label: t('recipe.dynamicRange'), value: selectedRecipe.dynamicRange },
-                          { label: t('recipe.highlight'), value: selectedRecipe.highlightTone },
-                          { label: t('recipe.shadow'), value: selectedRecipe.shadowTone },
-                          { label: t('recipe.color'), value: selectedRecipe.saturation },
-                          { label: t('recipe.sharpness'), value: selectedRecipe.sharpness },
-                          { label: t('recipe.noiseReduction'), value: selectedRecipe.noiseReduction },
-                          { label: t('recipe.clarity'), value: selectedRecipe.clarity },
-                          { label: t('recipe.grainRoughness'), value: grainRoughness },
-                          { label: t('recipe.grainSize'), value: grainSize },
-                          { label: t('recipe.colorChrome'), value: selectedRecipe.colorChromeEffect },
-                          { label: t('recipe.fxBlue'), value: selectedRecipe.colorChromeEffectBlue },
-                          { label: t('recipe.wbRed'), value: wbRed },
-                          { label: t('recipe.wbBlue'), value: wbBlue },
-                        ].map(stat => (
-                          <FilmSettingCard key={stat.label} label={stat.label} value={stat.value} />
-                        ))}
+                        {displayConfig.recipeDetail && displayConfig.recipeDetail.length > 0 ? (
+                          displayConfig.recipeDetail.map(fieldKey => {
+                            const field = metadataFields.find(f => f.key === fieldKey);
+                            const value = (selectedRecipe as any)[fieldKey] || '-';
+                            return (
+                              <FilmSettingCard 
+                                key={fieldKey} 
+                                label={field?.label || fieldKey} 
+                                value={value} 
+                              />
+                            );
+                          })
+                        ) : metadataFields.length > 0 ? (
+                          metadataFields.filter(f => f.isEnabled).map(field => (
+                            <FilmSettingCard 
+                              key={field.key} 
+                              label={field.label} 
+                              value={(selectedRecipe as any)[field.key] || '-'} 
+                            />
+                          ))
+                        ) : (
+                          [
+                            { label: t('recipe.whiteBalance'), value: selectedRecipe.whiteBalance },
+                            { label: t('recipe.dynamicRange'), value: selectedRecipe.dynamicRange },
+                            { label: t('recipe.highlight'), value: selectedRecipe.highlightTone },
+                            { label: t('recipe.shadow'), value: selectedRecipe.shadowTone },
+                            { label: t('recipe.color'), value: selectedRecipe.saturation },
+                            { label: t('recipe.sharpness'), value: selectedRecipe.sharpness },
+                            { label: t('recipe.noiseReduction'), value: selectedRecipe.noiseReduction },
+                            { label: t('recipe.clarity'), value: selectedRecipe.clarity },
+                            { label: t('recipe.grainRoughness'), value: grainRoughness },
+                            { label: t('recipe.grainSize'), value: grainSize },
+                            { label: t('recipe.colorChrome'), value: selectedRecipe.colorChromeEffect },
+                            { label: t('recipe.fxBlue'), value: selectedRecipe.colorChromeEffectBlue },
+                            { label: t('recipe.wbRed'), value: wbRed },
+                            { label: t('recipe.wbBlue'), value: wbBlue },
+                          ].map(stat => (
+                            <FilmSettingCard key={stat.label} label={stat.label} value={stat.value} />
+                          ))
+                        )}
                       </div>
                     </div>
                   </div>

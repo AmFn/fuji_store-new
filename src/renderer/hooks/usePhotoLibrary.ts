@@ -23,6 +23,14 @@ export function usePhotoLibrary() {
   const [thumbnailDir, setThumbnailDir] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bootProgress, setBootProgress] = useState({
+    phase: 'init',
+    total: 0,
+    completed: 0,
+    failed: 0,
+    percent: 0,
+    text: '准备中...'
+  });
 
   const dedupeFolders = (items: Folder[]) => {
     const seen = new Set<string>();
@@ -32,6 +40,78 @@ export function usePhotoLibrary() {
       seen.add(key);
       return true;
     });
+  };
+
+  const toFileUrl = (inputPath: string): string => {
+    const normalized = (inputPath || '').replace(/\\/g, '/');
+    if (!normalized) return '';
+    if (normalized.startsWith('file://')) return normalized;
+    if (/^[A-Za-z]:\//.test(normalized)) {
+      return `file:///${encodeURI(normalized)}`;
+    }
+    if (normalized.startsWith('/')) {
+      return `file://${encodeURI(normalized)}`;
+    }
+    return `file:///${encodeURI(normalized)}`;
+  };
+
+  const preloadThumbnails = async (inputPhotos: Photo[], concurrency = 6): Promise<Photo[]> => {
+    if (!window.electronAPI?.getThumbnail || inputPhotos.length === 0) return inputPhotos;
+
+    const total = inputPhotos.length;
+    let completed = 0;
+    let failed = 0;
+    let pointer = 0;
+    const output = [...inputPhotos];
+
+    setBootProgress({
+      phase: 'thumbnails',
+      total,
+      completed: 0,
+      failed: 0,
+      percent: 0,
+      text: `正在预加载缩略图 (0/${total})`
+    });
+
+    const worker = async () => {
+      while (true) {
+        const index = pointer;
+        pointer += 1;
+        if (index >= total) break;
+
+        const photo = output[index];
+        try {
+          const res = await window.electronAPI.getThumbnail(photo.filePath, photo.hash);
+          if (res?.success && res.thumbnailPath) {
+            const nextThumb = toFileUrl(res.thumbnailPath);
+            output[index] = {
+              ...photo,
+              thumbnailUrl: nextThumb,
+              previewUrl: photo.fileName.toLowerCase().endsWith('.raf') ? nextThumb : photo.previewUrl
+            };
+          } else {
+            failed += 1;
+          }
+        } catch {
+          failed += 1;
+        } finally {
+          completed += 1;
+          const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
+          setBootProgress({
+            phase: 'thumbnails',
+            total,
+            completed,
+            failed,
+            percent,
+            text: `正在预加载缩略图 (${completed}/${total})`
+          });
+        }
+      }
+    };
+
+    const workers = Array.from({ length: Math.max(1, Math.min(concurrency, total)) }, () => worker());
+    await Promise.all(workers);
+    return output;
   };
 
   /**
@@ -86,10 +166,21 @@ export function usePhotoLibrary() {
     setError(null);
     try {
       if (window.electronAPI) {
+        setBootProgress({
+          phase: 'bootstrap',
+          total: 4,
+          completed: 0,
+          failed: 0,
+          percent: 0,
+          text: '初始化目录与配置...'
+        });
+
         // 确保存在未分类目录
         await ensureUncategorizedFolder();
+        setBootProgress(prev => ({ ...prev, completed: 1, percent: 25, text: '读取缓存目录...' }));
         
         const thumbDir = await loadThumbnailDir();
+        setBootProgress(prev => ({ ...prev, completed: 2, percent: 50, text: '读取文件夹和标签...' }));
         const [foldersData, tagsData] = await Promise.all([
           folderService.loadAllFolders(),
           tagService.loadAllTags()
@@ -97,6 +188,7 @@ export function usePhotoLibrary() {
         
         // 加载第一页照片
         const photosData = await photoService.loadPhotosPage(1, 120, thumbDir);
+        setBootProgress(prev => ({ ...prev, completed: 3, percent: 75, text: '整理照片数据...' }));
         
         // 确保照片有有效的thumbnailUrl
         const processedPhotos = photosData.items.map(photo => {
@@ -109,10 +201,20 @@ export function usePhotoLibrary() {
           }
           return photo;
         });
+
+        const hydratedPhotos = await preloadThumbnails(processedPhotos, 6);
         
-        setPhotos(processedPhotos);
+        setPhotos(hydratedPhotos);
         setFolders(dedupeFolders(foldersData));
         setTags(tagsData);
+        setBootProgress({
+          phase: 'done',
+          total: 1,
+          completed: 1,
+          failed: 0,
+          percent: 100,
+          text: '加载完成'
+        });
       } else {
         setPhotos([
           {
@@ -213,6 +315,7 @@ export function usePhotoLibrary() {
     thumbnailDir,     // 缩略图目录
     loading,          // 加载状态
     error,            // 错误信息
+    bootProgress,     // 启动加载进度
     reload: loadAll   // 重新加载数据的方法
   };
 }

@@ -67,7 +67,14 @@ declare global {
       // AI 识别
       recognizeRecipe: (photo: any) => Promise<any>;
       
+      // 元数据解析
+      parseMetadata: (filePath: string) => Promise<any>;
+      saveMetadataToPhoto: (photoId: number, metadata: any) => Promise<boolean>;
+      getDisplayConfig: () => Promise<any>;
+      saveDisplayConfig: (config: any) => Promise<boolean>;
+      
       // 其他
+      getThumbnail: (photoPath: string, hash?: string) => Promise<{ success: boolean; thumbnailPath?: string; status?: string; error?: string }>;
       getThumbnailDir: () => Promise<string>;
       setThumbnailDir: (dir: string) => Promise<{ success: boolean; cacheDir: string }>;
       clearThumbnailCache: () => Promise<{ success: boolean; deleted?: number; error?: string }>;

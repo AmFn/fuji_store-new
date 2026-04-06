@@ -73,6 +73,37 @@ const MIGRATIONS = [
       db.exec('ALTER TABLE photos ADD COLUMN is_recipe_display INTEGER NOT NULL DEFAULT 0');
     },
   },
+  {
+    version: 7,
+    name: 'create_metadata_mapping_tables',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS metadata_mapping_configs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          field_name TEXT NOT NULL,
+          json_path TEXT NOT NULL,
+          is_enabled INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(field_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS metadata_presets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT,
+          config_json TEXT NOT NULL DEFAULT '{}',
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_metadata_configs_field ON metadata_mapping_configs(field_name);
+        CREATE INDEX IF NOT EXISTS idx_metadata_presets_default ON metadata_presets(is_default);
+      `);
+    },
+  },
 ];
 
 class PhotoDatabase {
@@ -695,6 +726,81 @@ class PhotoDatabase {
     }
     
     return matchedPhotos;
+  }
+
+  // ==================== 元数据映射配置操作 ====================
+
+  getAllMappingConfigs() {
+    return this.db.prepare('SELECT * FROM metadata_mapping_configs ORDER BY field_name').all();
+  }
+
+  getMappingConfigByField(fieldName) {
+    return this.db.prepare('SELECT * FROM metadata_mapping_configs WHERE field_name = ?').get(fieldName);
+  }
+
+  upsertMappingConfig(fieldName, jsonPath, name = '') {
+    const now = Date.now();
+    const existing = this.getMappingConfigByField(fieldName);
+    
+    if (existing) {
+      this.db.prepare(`
+        UPDATE metadata_mapping_configs 
+        SET json_path = ?, name = ?, updated_at = ?
+        WHERE field_name = ?
+      `).run(jsonPath, name, now, fieldName);
+      return this.getMappingConfigByField(fieldName);
+    } else {
+      this.db.prepare(`
+        INSERT INTO metadata_mapping_configs (name, field_name, json_path, is_enabled, created_at, updated_at)
+        VALUES (?, ?, ?, 1, ?, ?)
+      `).run(name || fieldName, fieldName, jsonPath, now, now);
+      return this.getMappingConfigByField(fieldName);
+    }
+  }
+
+  deleteMappingConfig(fieldName) {
+    return this.db.prepare('DELETE FROM metadata_mapping_configs WHERE field_name = ?').run(fieldName);
+  }
+
+  getAllPresets() {
+    return this.db.prepare('SELECT * FROM metadata_presets ORDER BY is_default DESC, name').all();
+  }
+
+  getPresetById(id) {
+    return this.db.prepare('SELECT * FROM metadata_presets WHERE id = ?').get(id);
+  }
+
+  getDefaultPreset() {
+    return this.db.prepare('SELECT * FROM metadata_presets WHERE is_default = 1').get();
+  }
+
+  upsertPreset(name, configJson, description = '', isDefault = false) {
+    const now = Date.now();
+    
+    if (isDefault) {
+      this.db.prepare('UPDATE metadata_presets SET is_default = 0').run();
+    }
+    
+    const existing = this.db.prepare('SELECT * FROM metadata_presets WHERE name = ?').get(name);
+    
+    if (existing) {
+      this.db.prepare(`
+        UPDATE metadata_presets 
+        SET description = ?, config_json = ?, is_default = ?, updated_at = ?
+        WHERE name = ?
+      `).run(description, JSON.stringify(configJson), isDefault ? 1 : 0, now, name);
+      return this.db.prepare('SELECT * FROM metadata_presets WHERE name = ?').get(name);
+    } else {
+      this.db.prepare(`
+        INSERT INTO metadata_presets (name, description, config_json, is_default, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(name, description, JSON.stringify(configJson), isDefault ? 1 : 0, now, now);
+      return this.db.prepare('SELECT * FROM metadata_presets WHERE name = ?').get(name);
+    }
+  }
+
+  deletePreset(id) {
+    return this.db.prepare('DELETE FROM metadata_presets WHERE id = ?').run(id);
   }
 
   /**

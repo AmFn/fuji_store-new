@@ -42,10 +42,12 @@ export class ThumbnailQueue extends EventEmitter {
     this.queue = new PQueue({ concurrency });
     this.tasks = new Map(); // hash -> task
     this.inflight = new Map(); // hash -> promise
+    this.cacheDirEnsuredAt = 0;
+    this.cacheDirEnsurePromise = null;
   }
 
   async init() {
-    await fsp.mkdir(this.cacheDir, { recursive: true });
+    await this.#ensureCacheDir(true);
   }
 
   thumbnailPath(hash) {
@@ -62,6 +64,7 @@ export class ThumbnailQueue extends EventEmitter {
   }
 
   async ensureForPhoto(photo) {
+    await this.#ensureCacheDir();
     const thumbPath = this.thumbnailPath(photo.hash);
     if (await exists(thumbPath)) {
       if (photo.path) await this.db.updateThumbnailStatus(photo.path, TASK_STATUS.done);
@@ -75,6 +78,7 @@ export class ThumbnailQueue extends EventEmitter {
       throw new Error('enqueue requires photoPath and hash');
     }
 
+    await this.#ensureCacheDir();
     const outputPath = this.thumbnailPath(hash);
     if (await exists(outputPath)) {
       await this.db.updateThumbnailStatus(photoPath, TASK_STATUS.done);
@@ -161,6 +165,7 @@ export class ThumbnailQueue extends EventEmitter {
   }
 
   async #runWorker(sourcePath, outputPath) {
+    await this.#ensureCacheDir();
     const workerUrl = new URL('../workers/imageWorker.js', import.meta.url);
     return new Promise((resolve, reject) => {
       const worker = new Worker(workerUrl, {
@@ -202,6 +207,26 @@ export class ThumbnailQueue extends EventEmitter {
 
   clear() {
     this.queue.clear();
+  }
+
+  async #ensureCacheDir(force = false) {
+    const now = Date.now();
+    if (!force && now - this.cacheDirEnsuredAt < 1500) {
+      return;
+    }
+    if (this.cacheDirEnsurePromise) {
+      await this.cacheDirEnsurePromise;
+      return;
+    }
+    this.cacheDirEnsurePromise = fsp
+      .mkdir(this.cacheDir, { recursive: true })
+      .then(() => {
+        this.cacheDirEnsuredAt = Date.now();
+      })
+      .finally(() => {
+        this.cacheDirEnsurePromise = null;
+      });
+    await this.cacheDirEnsurePromise;
   }
 }
 
