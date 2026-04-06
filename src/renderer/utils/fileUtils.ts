@@ -2,8 +2,21 @@ import { Photo, Folder } from '../types';
 import { PLACEHOLDER_IMAGE } from '../constants/assets';
 
 function parseDbDateTime(dateStr: any): string | null {
-  if (!dateStr) return null;
+  if (dateStr === null || dateStr === undefined || dateStr === '') return null;
+  if (typeof dateStr === 'number' && Number.isFinite(dateStr)) {
+    const ts = dateStr > 1e12 ? dateStr : dateStr * 1000;
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
   const str = String(dateStr);
+  if (/^\d+$/.test(str)) {
+    const num = Number(str);
+    if (Number.isFinite(num)) {
+      const ts = num > 1e12 ? num : num * 1000;
+      const d = new Date(ts);
+      if (!Number.isNaN(d.getTime())) return d.toISOString();
+    }
+  }
   const normalized = str.replace(/^(\d{4}):(\d{2}):(\d{2})\s+/, '$1-$2-$3T');
   const parsed = new Date(normalized);
   if (isNaN(parsed.getTime())) {
@@ -144,6 +157,7 @@ export function convertDbPhotoToPhoto(dbPhoto: any, thumbDir?: string | null): P
     tags: dbPhoto.tags ? dbPhoto.tags.split(',').filter((t: string) => t.trim()) : [],
     folderId: dbPhoto.folder_id !== undefined && dbPhoto.folder_id !== null ? String(dbPhoto.folder_id) : undefined,
     ownerId: 'local',
+    size: dbPhoto.size !== undefined && dbPhoto.size !== null ? String(dbPhoto.size) : '0',
     // 从 metadataJson 中提取字段
     metadataJson: null,
   };

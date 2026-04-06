@@ -14,6 +14,7 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
   const [dateLimits, setDateLimits] = useState<Record<string, number>>({});
+  const [visibleYearCount, setVisibleYearCount] = useState(2);
 
   const INITIAL_GRID_LIMIT = 24;
   const LOAD_MORE_STEP = 24;
@@ -33,6 +34,11 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
   }, [photos]);
 
   const sortedYears = useMemo(() => Object.keys(groupedByYear).sort((a, b) => b.localeCompare(a)), [groupedByYear]);
+  const visibleYears = useMemo(() => sortedYears.slice(0, visibleYearCount), [sortedYears, visibleYearCount]);
+
+  useEffect(() => {
+    setVisibleYearCount(2);
+  }, [photos.length]);
 
   // Initialize collapsedDates: only the very first date of the timeline is expanded by default
   useEffect(() => {
@@ -95,7 +101,7 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
       | { type: 'date', date: string, items: Photo[] }
     )[] = [];
     
-    sortedYears.forEach(year => {
+    visibleYears.forEach(year => {
       const isYearCollapsed = collapsedYears.has(year);
       const dateGroups = groupedByYear[year];
       const sortedDates = Object.keys(dateGroups).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
@@ -117,7 +123,7 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
       }
     });
     return list;
-  }, [sortedYears, groupedByYear, collapsedYears]);
+  }, [visibleYears, groupedByYear, collapsedYears]);
 
   if (photos.length === 0) {
     return (
@@ -343,6 +349,17 @@ export function TimelineView({ photos, onPhotoClick, onSearchDate }: TimelineVie
             </div>
           );
         })}
+
+        {visibleYearCount < sortedYears.length && (
+          <div className="px-8 pb-12 flex justify-center">
+            <button
+              onClick={() => setVisibleYearCount(prev => Math.min(prev + 2, sortedYears.length))}
+              className="px-5 py-2 rounded-full border border-blue-500/30 bg-blue-500/5 text-blue-500 text-[10px] font-black uppercase tracking-widest hover:bg-blue-500/10 transition-all"
+            >
+              Load Older Years
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

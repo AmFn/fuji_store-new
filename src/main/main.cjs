@@ -310,8 +310,8 @@ app.whenReady().then(async () => {
   });
 
   // Legacy channels mapped to new service.
-  ipcMain.handle('library:scan-folder', async (_e, { folderPath, watch = true }) => {
-    const result = await libraryManager.scanDirectory(folderPath, { watch });
+  ipcMain.handle('library:scan-folder', async (_e, { folderPath, watch = true, allowedFormats = null }) => {
+    const result = await libraryManager.scanDirectory(folderPath, { watch, allowedFormats });
     return { success: true, ...result };
   });
   ipcMain.handle('library:scan-files', async (_e, { filePaths, targetFolderId }) => {
@@ -327,6 +327,7 @@ app.whenReady().then(async () => {
     return res.total || 0;
   });
   ipcMain.handle('library:get-scan-progress', async () => libraryManager.getScanProgress());
+  ipcMain.handle('library:cancel-scan', async () => libraryManager.cancelScan());
   ipcMain.handle('library:resync', async () => ({ success: true, ...(await libraryManager.resyncLibrary()) }));
   ipcMain.handle('library:get-watched-folders', async () => ({
     watchedPaths: libraryManager.watcher.getWatchedDirectories(),

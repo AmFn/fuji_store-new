@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Upload, X, ChevronDown, Copy, RefreshCw, Check, ArrowLeft, Plus, Trash2, Eye, Image, FileText, Settings, BookOpen, Save, Download } from 'lucide-react';
 import { MetadataParser, MetadataFieldConfig, MetadataDisplayConfig, ParsedMetadata, DisplayType } from '../../utils/metadataParser';
 import { cn } from '../../lib/utils';
@@ -155,6 +155,23 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
   const [displayConfig, setDisplayConfig] = useState<Record<DisplayType, string[]>>(loadDisplayConfigFromStorage);
   const [fieldsLoaded, setFieldsLoaded] = useState(false);
   const [showJsonPanel, setShowJsonPanel] = useState(false);
+  const [jsonSearch, setJsonSearch] = useState('');
+  const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
+  const jsonPanelRef = useRef<HTMLDivElement>(null);
+  const lastHighlightedRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    if (highlightedPath && highlightedPath !== lastHighlightedRef.current && jsonPanelRef.current) {
+      lastHighlightedRef.current = highlightedPath;
+      setTimeout(() => {
+        const element = jsonPanelRef.current?.querySelector('.bg-yellow-500');
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    }
+  }, [highlightedPath]);
+  
   const [editingField, setEditingField] = useState<string | null>(null);
   const [tempField, setTempField] = useState<Partial<MetadataFieldConfig>>({});
   const [showCopied, setShowCopied] = useState(false);
@@ -448,6 +465,80 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
   };
 
   const rawKeys = metadata ? MetadataParser.getAllRawKeys(metadata) : [];
+  
+  const getFilteredKeys = () => {
+    if (!metadata?.raw || !jsonSearch) return rawKeys.slice(0, 50);
+    const searchLower = jsonSearch.toLowerCase();
+    const keys: string[] = [];
+    const searchInObject = (obj: any, prefix: string = '') => {
+      for (const [key, value] of Object.entries(obj)) {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        const valueStr = String(value).toLowerCase();
+        if (fullKey.toLowerCase().includes(searchLower) || valueStr.includes(searchLower)) {
+          keys.push(fullKey);
+        }
+        if (value && typeof value === 'object' && !(value instanceof Date)) {
+          searchInObject(value, fullKey);
+        }
+      }
+    };
+    searchInObject(metadata.raw);
+    return keys.slice(0, 50);
+  };
+  
+  const filteredKeys = getFilteredKeys();
+  
+  const renderJsonWithHighlight = (obj: any, highlightPath: string | null, currentPath: string = '', indent: number = 0): React.ReactNode[] => {
+    if (!obj || typeof obj !== 'object') return [];
+    
+    const elements: React.ReactNode[] = [];
+    const isArray = Array.isArray(obj);
+    const entries = isArray ? obj.map((v, i) => [i, v]) : Object.entries(obj);
+    const isRoot = currentPath === '';
+    const indentStr = '  '.repeat(indent);
+    const nextIndentStr = '  '.repeat(indent + 1);
+    
+    if (!isRoot) {
+      elements.push(<span key={`${currentPath}-open`}>{isArray ? '[\n' : '{\n'}</span>);
+    }
+    
+    entries.forEach(([key, value], index) => {
+      const fullPath = isArray ? `${currentPath}[${key}]` : currentPath ? `${currentPath}.${key}` : String(key);
+      const isHighlighted = highlightPath && (fullPath === highlightPath || fullPath.startsWith(highlightPath + '.') || highlightPath.startsWith(fullPath + '.'));
+      const isDirectMatch = highlightPath === fullPath;
+      const isLast = index === entries.length - 1;
+      
+      elements.push(
+        <span key={fullPath}>
+          {nextIndentStr}
+          <span 
+            className={`cursor-pointer ${isDirectMatch ? 'bg-yellow-500 text-black px-0.5 rounded' : isHighlighted ? 'bg-yellow-500/30' : ''}`}
+            onClick={() => setHighlightedPath(isDirectMatch ? null : fullPath)}
+          >
+            {isArray ? '' : `"${key}": `}
+          </span>
+          {typeof value === 'object' && value !== null ? (
+            <>
+              {renderJsonWithHighlight(value, highlightPath, fullPath, indent + 1)}
+            </>
+          ) : (
+            <span className={typeof value === 'string' ? 'text-green-400' : 'text-blue-400'}>
+              {typeof value === 'string' ? `"${value}"` : String(value)}
+            </span>
+          )}
+          {isLast ? '' : ','}
+          {'\n'}
+        </span>
+      );
+    });
+    
+    if (!isRoot) {
+      elements.push(<span key={`${currentPath}-close`}>{indentStr}{isArray ? ']' : '}'}{'\n'}</span>);
+    }
+    
+    return elements;
+  };
+  
   const enabledFields = fields.filter(f => f.isEnabled);
   const rawKeySet = new Set(rawKeys);
   const existingJsonPathSet = new Set(fields.map(field => field.jsonPath).filter(Boolean));
@@ -753,25 +844,45 @@ export function MetadataParserView({ onBack, onFieldsChange, onDisplayConfigChan
               {showCopied ? '已复制' : '复制'}
             </button>
           </div>
-          <div className="flex-1 min-h-0 overflow-auto bg-slate-900 rounded-2xl p-4">
-            <pre className="text-[10px] font-mono text-green-400 whitespace-pre-wrap">
-              {metadata?.raw ? JSON.stringify(metadata.raw, null, 2) : '暂无数据'}
-            </pre>
+          <div ref={jsonPanelRef} className="flex-1 min-h-0 overflow-auto bg-slate-900 rounded-2xl p-4">
+            {metadata?.raw ? (
+              <pre className="text-[10px] font-mono text-green-400 whitespace-pre-wrap">
+                {renderJsonWithHighlight(metadata.raw, highlightedPath)}
+              </pre>
+            ) : (
+              <pre className="text-[10px] font-mono text-green-400 whitespace-pre-wrap">暂无数据</pre>
+            )}
           </div>
           {rawKeys.length > 0 && (
             <div className="mt-4">
-              <h4 className="text-xs font-bold mb-2">可用字段 ({rawKeys.length}) <span className="text-slate-400 font-normal text-[10px]">拖拽到输入框</span></h4>
+              <h4 className="text-xs font-bold mb-2">
+                可用字段 ({filteredKeys.length}) 
+                <span className="text-slate-400 font-normal text-[10px]">拖拽到输入框</span>
+              </h4>
+              <input
+                type="text"
+                placeholder="搜索字段..."
+                value={jsonSearch}
+                onChange={(e) => setJsonSearch(e.target.value)}
+                className="w-full mb-2 px-3 py-1.5 text-xs bg-slate-500/10 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
               <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-                {rawKeys.slice(0, 50).map((key) => (
+                {filteredKeys.map((key) => (
                   <button
                     key={key}
                     draggable
                     onDragStart={(e) => handleDragStart(e, key)}
                     onDragEnd={handleDragEnd}
-                    onClick={() => editingField && setTempField(prev => ({ ...prev, jsonPath: key }))}
+                    onClick={() => {
+                      if (editingField) {
+                        setTempField(prev => ({ ...prev, jsonPath: key }));
+                      }
+                      setHighlightedPath(key);
+                    }}
                     className={cn(
                       "px-2 py-1 rounded-md bg-slate-500/10 text-[8px] font-mono hover:bg-blue-500/10 truncate max-w-[150px] cursor-grab active:cursor-grabbing transition-all",
-                      draggedKey === key && "opacity-50 scale-95"
+                      draggedKey === key && "opacity-50 scale-95",
+                      highlightedPath === key && "bg-yellow-500/50 border border-yellow-500"
                     )}
                   >
                     {key}

@@ -111,15 +111,25 @@ export class LibraryManager extends EventEmitter {
       return { success: false, error: 'Photo hash not found' };
     }
 
-    const result = await this.thumbnailQueue.ensureForPhoto({
-      path: photoPath,
-      hash: resolvedHash,
-    });
-    return {
-      success: true,
-      thumbnailPath: result.thumbnailPath,
-      status: result.status,
-    };
+    try {
+      const result = await this.thumbnailQueue.ensureForPhoto({
+        path: photoPath,
+        hash: resolvedHash,
+      });
+      return {
+        success: result?.status !== 'error',
+        thumbnailPath: result?.thumbnailPath,
+        status: result?.status,
+        error: result?.error || null,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        thumbnailPath: null,
+        status: 'error',
+        error: error?.message || String(error),
+      };
+    }
   }
 
   async getTimelineGroups(page = 1, pageSize = 90) {
@@ -174,6 +184,11 @@ export class LibraryManager extends EventEmitter {
         };
       },
     });
+  }
+
+  cancelScan() {
+    const cancelled = this.scanner.cancelCurrentScan();
+    return { success: cancelled };
   }
 
   async stop() {
@@ -302,6 +317,7 @@ export function registerLibraryIpc(ipcMain, manager) {
   ipcMain.handle('scanDirectoryForNewFiles', async (_evt, targetPath) => manager.scanDirectoryForNewFiles(targetPath));
   ipcMain.handle('getPhotos', async (_evt, page, pageSize) => manager.getPhotos(page, pageSize));
   ipcMain.handle('getScanProgress', async () => manager.getScanProgress());
+  ipcMain.handle('cancelScan', async () => manager.cancelScan());
   ipcMain.handle('resyncLibrary', async () => manager.resyncLibrary());
   ipcMain.handle('getThumbnail', async (_evt, photoPath, hash) => manager.getThumbnail(photoPath, hash));
   ipcMain.handle('getTimelineGroups', async (_evt, page, pageSize) => manager.getTimelineGroups(page, pageSize));

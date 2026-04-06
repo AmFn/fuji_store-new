@@ -63,6 +63,7 @@ declare global {
       // 扫描相关
       scanDirectoryForNewFiles: (folderPath: string) => Promise<{ newFiles: { path: string; fileName: string }[] }>;
       scanFiles: (filePaths: string[]) => Promise<any>;
+      cancelScan: () => Promise<{ success: boolean }>;
       
       // AI 识别
       recognizeRecipe: (photo: any) => Promise<any>;

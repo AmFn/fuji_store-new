@@ -182,6 +182,10 @@ function yieldToEventLoop() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function hashFileContent(filePath) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256');
@@ -252,10 +256,19 @@ export class FileScanner {
       lastError: null,
     };
     this.hashCache = new Map();
+    this.activeAbortController = null;
   }
 
   getProgress() {
     return { ...this.progress };
+  }
+
+  cancelCurrentScan() {
+    if (this.activeAbortController) {
+      this.activeAbortController.abort();
+      return true;
+    }
+    return false;
   }
 
   async #buildRecord(filePath, configJson = null) {
@@ -344,7 +357,13 @@ export class FileScanner {
 
   async scanDirectory(rootPath, options = {}) {
     if (this.running) {
-      throw new Error('Scan already in progress');
+      const waitStartedAt = Date.now();
+      while (this.running && Date.now() - waitStartedAt < 30_000) {
+        await sleep(120);
+      }
+      if (this.running) {
+        throw new Error('Scan already in progress');
+      }
     }
 
     const {
@@ -355,6 +374,15 @@ export class FileScanner {
       skipUnchanged = true,
       allowedFormats = null,
     } = options;
+    const internalController = new AbortController();
+    if (signal) {
+      if (signal.aborted) {
+        internalController.abort();
+      } else {
+        signal.addEventListener('abort', () => internalController.abort(), { once: true });
+      }
+    }
+    const effectiveSignal = internalController.signal;
 
     const normalizedRoot = normalizePath(rootPath);
     let metadataConfig = null;
@@ -368,6 +396,7 @@ export class FileScanner {
     let scannedSinceYield = 0;
 
     this.running = true;
+    this.activeAbortController = internalController;
     this.progress = {
       status: 'running',
       rootPath: normalizedRoot,
@@ -381,7 +410,7 @@ export class FileScanner {
     };
 
     try {
-      for await (const event of walkDirectory(normalizedRoot, { recursive, signal, allowedFormats })) {
+      for await (const event of walkDirectory(normalizedRoot, { recursive, signal: effectiveSignal, allowedFormats })) {
         if (event.type === 'error') {
           this.progress.failed += 1;
           this.progress.lastError = `${event.path}: ${event.error.message}`;
@@ -464,15 +493,31 @@ export class FileScanner {
       throw error;
     } finally {
       this.running = false;
+      this.activeAbortController = null;
     }
   }
 
   async scanDirectoryForNewFiles(rootPath, options = {}) {
     if (this.running) {
-      throw new Error('Scan already in progress');
+      const waitStartedAt = Date.now();
+      while (this.running && Date.now() - waitStartedAt < 30_000) {
+        await sleep(120);
+      }
+      if (this.running) {
+        throw new Error('Scan already in progress');
+      }
     }
 
     const { recursive = true, signal } = options;
+    const internalController = new AbortController();
+    if (signal) {
+      if (signal.aborted) {
+        internalController.abort();
+      } else {
+        signal.addEventListener('abort', () => internalController.abort(), { once: true });
+      }
+    }
+    const effectiveSignal = internalController.signal;
     const normalizedRoot = normalizePath(rootPath);
     let metadataConfig = null;
     try {
@@ -484,6 +529,7 @@ export class FileScanner {
     const seenPaths = new Set();
 
     this.running = true;
+    this.activeAbortController = internalController;
     this.progress = {
       status: 'running',
       rootPath: normalizedRoot,
@@ -497,7 +543,7 @@ export class FileScanner {
     };
 
     try {
-      for await (const event of walkDirectory(normalizedRoot, { recursive, signal })) {
+      for await (const event of walkDirectory(normalizedRoot, { recursive, signal: effectiveSignal })) {
         if (event.type === 'error') {
           this.progress.failed += 1;
           this.progress.lastError = `${event.path}: ${event.error.message}`;
@@ -558,6 +604,7 @@ export class FileScanner {
       throw error;
     } finally {
       this.running = false;
+      this.activeAbortController = null;
     }
   }
 }

@@ -13,6 +13,15 @@ interface User {
   photoURL: string | null;
 }
 
+export interface ImportQueuePayload {
+  type: 'files' | 'folders';
+  filePaths?: string[];
+  folderPath?: string;
+  folderName?: string;
+  targetFolderId: string | null;
+  allowedFormats: string[] | null;
+}
+
 interface ImportModalProps {
   onClose: () => void;
   user: User | null;
@@ -23,14 +32,23 @@ interface ImportModalProps {
   activeFolderId: string | null;
   folders: Folder[];
   onImportCompleted?: () => Promise<void> | void;
+  onQueueImport?: (payload: ImportQueuePayload) => void;
 }
 
-function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType, activeFolderId, folders, onImportCompleted }: ImportModalProps) {
+function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType, activeFolderId, folders, onImportCompleted, onQueueImport }: ImportModalProps) {
   const { t } = useLanguage();
   const [files, setFiles] = useState<File[]>([]);
   const [selectedLocalPaths, setSelectedLocalPaths] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
+  const [queuedToBackground, setQueuedToBackground] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressStats, setProgressStats] = useState({
+    total: 0,
+    scanned: 0,
+    success: 0,
+    failed: 0,
+    skipped: 0,
+  });
   const [folderName, setFolderName] = useState('');
   const [importMode, setImportMode] = useState<'create' | 'import'>(initialType === 'folders' ? 'create' : 'import');
   const [selectedDestFolderId, setSelectedDestFolderId] = useState<string | null>(() => {
@@ -40,7 +58,7 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
     return uncategorized?.id || null;
   });
   const [folderPath, setFolderPath] = useState('');
-  const [selectedFormats, setSelectedFormats] = useState<string[]>(['JPG']);
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(['JPG', 'RAF']);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -93,16 +111,61 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
     }
   };
 
+  const pickScanStats = (obj: any) => {
+    const source = obj?.finalProgress || obj || {};
+    const scanned = Number(source.scanned || 0);
+    const success = Number(source.indexed || source.success || 0);
+    const failed = Number(source.failed || 0);
+    const skipped = Number(source.skipped || 0);
+    return { scanned, success, failed, skipped };
+  };
+
+  const buildQueuePayload = (): ImportQueuePayload | null => {
+    const allowedFormats = selectedFormats.length === 2 ? null : selectedFormats;
+    if (importMode !== 'import') return null;
+    if (initialType === 'files') {
+      const filePaths = files.length > 0 ? files.map(file => file.path) : selectedLocalPaths;
+      if (!filePaths || filePaths.length === 0) return null;
+      return {
+        type: 'files',
+        filePaths,
+        targetFolderId: selectedDestFolderId || null,
+        allowedFormats,
+      };
+    }
+    if (!folderPath) return null;
+    return {
+      type: 'folders',
+      folderPath,
+      folderName: folderName || folderPath.split(/[\\/]/).pop() || folderPath,
+      targetFolderId: selectedDestFolderId || null,
+      allowedFormats,
+    };
+  };
+
   const handleImport = async () => {
     if (importMode === 'import' && files.length === 0 && selectedLocalPaths.length === 0 && !folderPath) return;
     if (importMode === 'create' && !folderName) return;
     if (selectedFormats.length === 0) return;
 
+    // 统一走后台导入队列逻辑
+    if (importMode === 'import') {
+      const payload = buildQueuePayload();
+      if (!payload || !onQueueImport) return;
+      onQueueImport(payload);
+      setImporting(true);
+      setQueuedToBackground(true);
+      setProgress(100);
+      return;
+    }
+
     setImporting(true);
     setProgress(0);
+    setProgressStats({ total: 0, scanned: 0, success: 0, failed: 0, skipped: 0 });
 
     const allowedFormats = selectedFormats.length === 2 ? null : selectedFormats;
     let scanProgressTimer: ReturnType<typeof setInterval> | null = null;
+    let importSummary: { success: number; failed: number; skipped?: number; total?: number } | null = null;
 
     try {
       const startScanProgressPolling = () => {
@@ -114,9 +177,17 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
             const scanned = Number(p.scanned || 0);
             const indexed = Number(p.indexed || 0);
             const failed = Number(p.failed || 0);
-            const processed = scanned + failed;
-            if (processed > 0) {
-              const current = Math.min(99, Math.round((indexed / processed) * 100));
+            const skipped = Number(p.skipped || 0);
+            const processed = indexed + failed + skipped;
+            setProgressStats(prev => ({
+              ...prev,
+              scanned,
+              success: indexed,
+              failed,
+              skipped,
+            }));
+            if (scanned > 0) {
+              const current = Math.min(99, Math.round((processed / scanned) * 100));
               setProgress(prev => (current > prev ? current : prev));
             }
           } catch {
@@ -163,38 +234,57 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
           if (initialType === 'files') {
             const importFilePaths = files.length > 0 ? files.map(file => file.path) : selectedLocalPaths;
             const total = importFilePaths.length;
+            let success = 0;
+            let failed = 0;
+            setProgressStats({ total, scanned: total, success: 0, failed: 0, skipped: 0 });
             for (let i = 0; i < total; i++) {
-              await window.electronAPI.importFiles({
-                files: [importFilePaths[i]],
-                targetFolderId: selectedDestFolderId
-              });
+              try {
+                await window.electronAPI.importFiles({
+                  files: [importFilePaths[i]],
+                  targetFolderId: selectedDestFolderId
+                });
+                success += 1;
+              } catch {
+                failed += 1;
+              }
+              setProgressStats({ total, scanned: total, success, failed, skipped: 0 });
               setProgress(Math.min(99, Math.round(((i + 1) / total) * 100)));
             }
+            importSummary = { total, success, failed, skipped: 0 };
           } else if (initialType === 'folders' && folderPath) {
             startScanProgressPolling();
-            const importedFolder = await window.electronAPI.importFolder({
+            const importResult = await window.electronAPI.importFolder({
               folderPath,
               targetFolderId: selectedDestFolderId || null,
-              allowedFormats
+              allowedFormats,
             });
             stopScanProgressPolling();
-            
-            if (importedFolder) {
-              if (window.electronAPI.createFolder) {
-                const parentId = selectedDestFolderId && !isNaN(Number(selectedDestFolderId)) ? Number(selectedDestFolderId) : null;
-                const folderToCreate = {
-                  ...importedFolder,
-                  parentId: parentId
-                };
-                const createdFolder = await window.electronAPI.createFolder(folderToCreate);
-                if (createdFolder) {
-                  if (window.electronAPI.assignFolderByPath && importedFolder.path) {
-                    await window.electronAPI.assignFolderByPath(createdFolder.id, importedFolder.path, true);
-                  }
-                  setFolders(prev => [...prev, convertDbFolderToFolder(createdFolder)]);
-                }
-              }
+
+            if (importResult?.folder) {
+              setFolders(prev => [...prev, convertDbFolderToFolder(importResult.folder)]);
             }
+
+            const { scanned, success, failed, skipped } = pickScanStats(importResult);
+            let finalScanned = scanned;
+            let finalSuccess = success;
+            let finalFailed = failed;
+            let finalSkipped = skipped;
+            if (finalScanned === 0 && window.electronAPI?.getScanProgress) {
+              const latestProgress = await window.electronAPI.getScanProgress(folderPath);
+              const latest = pickScanStats(latestProgress);
+              finalScanned = latest.scanned;
+              finalSuccess = latest.success;
+              finalFailed = latest.failed;
+              finalSkipped = latest.skipped;
+            }
+            setProgressStats({
+              total: finalScanned,
+              scanned: finalScanned,
+              success: finalSuccess,
+              failed: finalFailed,
+              skipped: finalSkipped,
+            });
+            importSummary = { total: finalScanned, success: finalSuccess, failed: finalFailed, skipped: finalSkipped };
           }
 
           setProgress(100);
@@ -202,6 +292,11 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
             await window.electronAPI.triggerLibraryUpdate();
           }
           await onImportCompleted?.();
+          if (importSummary) {
+            window.alert(
+              `导入完成\n成功: ${importSummary.success} 张\n失败: ${importSummary.failed} 张\n跳过: ${importSummary.skipped || 0} 张`
+            );
+          }
         }
       }
     } catch (error) {
@@ -404,13 +499,15 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                     <button onClick={() => { setFiles([]); setSelectedLocalPaths([]); setFolderPath(''); }} className="text-red-500 hover:text-red-600">{t('import.clear')}</button>
                   </div>
                   
-                  {initialType === 'files' && (
+                  {(initialType === 'files' || initialType === 'folders') && (
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('import.targetFolder')}</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        {initialType === 'folders' ? t('import.parentFolder') : t('import.targetFolder')}
+                      </label>
                       <CustomSelect
                         value={selectedDestFolderId || ''}
                         onChange={(val) => setSelectedDestFolderId(val || null)}
-                        placeholder={t('import.selectTargetFolder')}
+                        placeholder={initialType === 'folders' ? t('import.rootLibrary') : t('import.selectTargetFolder')}
                         options={folders.map(f => ({ label: f.name, value: f.id }))}
                       />
                     </div>
@@ -425,7 +522,29 @@ function ImportModal({ onClose, user, theme, setFolders, setPhotos, initialType,
                           animate={{ width: `${progress}%` }}
                         />
                       </div>
-                      <p className="text-center text-xs font-bold text-slate-400 uppercase tracking-widest">{t('import.importing')}... {progress}%</p>
+                      {queuedToBackground ? (
+                        <>
+                          <p className="text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
+                            已加入后台导入队列
+                          </p>
+                          <p className="text-center text-[11px] font-bold text-slate-400">
+                            你可以点击下方“后台导入”继续在任务面板查看进度
+                          </p>
+                          <button
+                            onClick={onClose}
+                            className="w-full py-4 rounded-2xl font-black border border-[var(--border-color)] text-blue-500 bg-[var(--bg-primary)] hover:bg-blue-500/5 transition-all"
+                          >
+                            后台导入
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-center text-xs font-bold text-slate-400 uppercase tracking-widest">{t('import.importing')}... {progress}%</p>
+                          <p className="text-center text-[11px] font-bold text-slate-400">
+                            成功 {progressStats.success} · 失败 {progressStats.failed} · 跳过 {progressStats.skipped}
+                          </p>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <button

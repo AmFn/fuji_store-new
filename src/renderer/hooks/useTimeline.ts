@@ -2,11 +2,17 @@
  * 时间线自定义Hook
  * 用于管理时间线的状态和数据加载
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Photo } from '../types';
 import { convertDbPhotoToPhoto } from '../utils/fileUtils';
 import '../types/electronAPI';
 import { PLACEHOLDER_IMAGE } from '../constants/assets';
+import {
+  getTimelineSnapshotCache,
+  setTimelineSnapshotCache,
+  getTimelineDayCache,
+  setTimelineDayCache,
+} from '../services/cacheService';
 
 const mockPhotos: Photo[] = [
   {
@@ -97,16 +103,24 @@ const mockPhotos: Photo[] = [
  * 提供时间线照片的状态管理和数据加载功能
  * @returns 时间线状态和操作方法
  */
-export function useTimeline() {
+export function useTimeline(enabled = true) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   /**
    * 加载时间线数据
    * 包括按天分组的照片
    */
-  const loadTimeline = async () => {
+  const loadTimeline = useCallback(async () => {
+    const cachedSnapshot = getTimelineSnapshotCache();
+    if (cachedSnapshot && cachedSnapshot.length > 0) {
+      setPhotos(cachedSnapshot);
+      hasLoadedRef.current = true;
+      return;
+    }
+
     setLoading(true);
     setError(null);
     
@@ -134,11 +148,17 @@ export function useTimeline() {
           if (!dayKey) continue;
           
           let dayPage = 1;
+          const dayCached = getTimelineDayCache(dayKey);
+          if (dayCached && dayCached.length > 0) {
+            allTimelinePhotos.push(...dayCached);
+            continue;
+          }
+          const dayPhotos: Photo[] = [];
           
           while (true) {
             const dayRes = await window.electronAPI.getTimelinePhotosByDay(dayKey, dayPage, 120);
             const rows = (dayRes?.items || []).map(p => convertDbPhotoToPhoto(p, null));
-            allTimelinePhotos.push(...rows);
+            dayPhotos.push(...rows);
             
             const totalPages = dayRes?.totalPages || dayPage;
             if (dayPage >= totalPages || rows.length === 0) break;
@@ -146,27 +166,37 @@ export function useTimeline() {
             dayPage += 1;
             if (dayPage > 200) break;
           }
+          if (dayPhotos.length > 0) {
+            setTimelineDayCache(dayKey, dayPhotos);
+            allTimelinePhotos.push(...dayPhotos);
+          }
         }
 
         setPhotos(allTimelinePhotos);
+        setTimelineSnapshotCache(allTimelinePhotos);
+        hasLoadedRef.current = true;
       } else {
         // Use mock data if electronAPI is not available
         setPhotos(mockPhotos);
+        hasLoadedRef.current = true;
       }
     } catch (err) {
       console.error('Failed to load timeline:', err);
       setError(err instanceof Error ? err.message : 'Failed to load timeline');
       // Use mock data in case of error
       setPhotos(mockPhotos);
+      hasLoadedRef.current = true;
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // 初始化加载时间线数据
   useEffect(() => {
-    loadTimeline();
-  }, []);
+    if (!enabled) return;
+    if (hasLoadedRef.current) return;
+    void loadTimeline();
+  }, [enabled, loadTimeline]);
 
   return {
     photos,           // 时间线照片列表

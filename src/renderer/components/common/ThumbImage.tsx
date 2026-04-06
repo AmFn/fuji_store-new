@@ -1,12 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Photo } from '../../types';
 import { PLACEHOLDER_IMAGE } from '../../constants/assets';
+import { LRUCache } from 'lru-cache';
 
 interface ThumbImageProps {
   photo: Photo;
   className?: string;
   alt?: string;
 }
+
+const thumbSrcCache = new LRUCache<string, string>({
+  max: 2000,
+  ttl: 30 * 60 * 1000,
+});
+
+const thumbFailureCache = new LRUCache<string, true>({
+  max: 2000,
+  ttl: 5 * 60 * 1000,
+});
 
 export function ThumbImage({ photo, className, alt }: ThumbImageProps) {
   const initialSrc = useMemo(() => photo.thumbnailUrl || photo.previewUrl || PLACEHOLDER_IMAGE, [photo.thumbnailUrl, photo.previewUrl]);
@@ -28,6 +39,17 @@ export function ThumbImage({ photo, className, alt }: ThumbImageProps) {
   };
 
   const handleError = async () => {
+    const cacheKey = `${photo.hash || ''}|${photo.filePath || ''}`;
+    const cachedSrc = thumbSrcCache.get(cacheKey);
+    if (cachedSrc) {
+      setSrc(cachedSrc);
+      return;
+    }
+    if (thumbFailureCache.has(cacheKey)) {
+      setSrc(photo.previewUrl || PLACEHOLDER_IMAGE);
+      return;
+    }
+
     if (!window.electronAPI?.getThumbnail || recovering) {
       setSrc(photo.previewUrl || PLACEHOLDER_IMAGE);
       return;
@@ -37,13 +59,16 @@ export function ThumbImage({ photo, className, alt }: ThumbImageProps) {
     try {
       const result = await window.electronAPI.getThumbnail(photo.filePath, photo.hash);
       if (result?.success && result.thumbnailPath) {
-        setSrc(toFileUrl(result.thumbnailPath));
+        const next = toFileUrl(result.thumbnailPath);
+        thumbSrcCache.set(cacheKey, next);
+        setSrc(next);
         return;
       }
     } catch {
       // Ignore and fallback below.
     }
 
+    thumbFailureCache.set(cacheKey, true);
     setSrc(photo.previewUrl || PLACEHOLDER_IMAGE);
   };
 

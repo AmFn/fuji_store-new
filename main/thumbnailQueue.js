@@ -11,6 +11,16 @@ const TASK_STATUS = {
   error: 'error',
 };
 
+function isNonRetryableThumbnailError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('bogus marker length') ||
+    message.includes('corrupt header') ||
+    message.includes('input file is missing') ||
+    message.includes('unsupported image format')
+  );
+}
+
 async function exists(filePath) {
   try {
     await fsp.access(filePath);
@@ -105,9 +115,14 @@ export class ThumbnailQueue extends EventEmitter {
     const promise = this.queue.add(async () => this.#runTask(task));
     this.inflight.set(hash, promise);
 
-    promise.finally(() => {
-      this.inflight.delete(hash);
-    });
+    promise.then(
+      () => {
+        this.inflight.delete(hash);
+      },
+      () => {
+        this.inflight.delete(hash);
+      }
+    );
     return promise;
   }
 
@@ -139,6 +154,9 @@ export class ThumbnailQueue extends EventEmitter {
       } catch (error) {
         task.error = error.message;
         task.updatedAt = Date.now();
+        if (isNonRetryableThumbnailError(error)) {
+          task.attempts = this.retry + 1;
+        }
         if (task.attempts > this.retry) {
           // 对于 RAF 文件，即使缩略图提取失败，也将其视为完成状态，因为我们会生成占位图
           if (task.photoPath && task.photoPath.toLowerCase().endsWith('.raf')) {
@@ -146,12 +164,19 @@ export class ThumbnailQueue extends EventEmitter {
             await this.db.updateThumbnailStatus(task.photoPath, TASK_STATUS.done);
             this.emit('task:done', { hash: task.hash, thumbnailPath: task.outputPath, width: 0, height: 0 });
             return { status: TASK_STATUS.done, thumbnailPath: task.outputPath, width: 0, height: 0 };
-          } else {
-            task.status = TASK_STATUS.error;
-            await this.db.updateThumbnailStatus(task.photoPath, TASK_STATUS.error);
-            this.emit('task:error', { hash: task.hash, path: task.photoPath, error: error.message });
-            throw error;
           }
+          task.status = TASK_STATUS.error;
+          await this.db.updateThumbnailStatus(task.photoPath, TASK_STATUS.error);
+          const payload = {
+            status: TASK_STATUS.error,
+            hash: task.hash,
+            thumbnailPath: task.outputPath,
+            width: 0,
+            height: 0,
+            error: error.message,
+          };
+          this.emit('task:error', { hash: task.hash, path: task.photoPath, error: error.message });
+          return payload;
         }
         this.emit('task:retry', {
           hash: task.hash,
@@ -161,7 +186,16 @@ export class ThumbnailQueue extends EventEmitter {
         });
       }
     }
-    throw new Error('Unexpected task loop exit');
+    const fallback = {
+      status: TASK_STATUS.error,
+      hash: task.hash,
+      thumbnailPath: task.outputPath,
+      width: 0,
+      height: 0,
+      error: task.error || 'Unexpected task loop exit',
+    };
+    this.emit('task:error', { hash: task.hash, path: task.photoPath, error: fallback.error });
+    return fallback;
   }
 
   async #runWorker(sourcePath, outputPath) {

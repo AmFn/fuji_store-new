@@ -6,6 +6,7 @@ import { Photo } from '../types';
 import { convertDbPhotoToPhoto } from '../utils/fileUtils';
 import '../types/electronAPI';
 import { PLACEHOLDER_IMAGE } from '../constants/assets';
+import { getPhotoPageCache, setPhotoPageCache, clearPhotoPageCache } from './cacheService';
 
 const LOCAL_PHOTOS_KEY = 'fuji-local-photos';
 
@@ -130,14 +131,21 @@ export const photoService = {
    */
   async loadPhotosPage(page: number, pageSize: number, thumbnailDir: string | null) {
     try {
+      const cached = getPhotoPageCache(page, pageSize, thumbnailDir);
+      if (cached) {
+        return cached;
+      }
+
       if (window.electronAPI?.getPhotosPage) {
         const pageData = await window.electronAPI.getPhotosPage(page, pageSize);
         const items = (pageData?.items || []).map(p => convertDbPhotoToPhoto(p, thumbnailDir));
-        
-        return {
+
+        const result = {
           items,
           totalPages: pageData?.totalPages || 1
         };
+        setPhotoPageCache(page, pageSize, thumbnailDir, result);
+        return result;
       } else {
         // 本地模式：从本地存储获取照片
         const photos = getLocalPhotos();
@@ -146,10 +154,12 @@ export const photoService = {
         const items = photos.slice(start, end);
         const totalPages = Math.ceil(photos.length / pageSize);
         
-        return {
+        const result = {
           items,
           totalPages
         };
+        setPhotoPageCache(page, pageSize, thumbnailDir, result);
+        return result;
       }
     } catch (error) {
       console.error('Failed to load photos page:', error);
@@ -160,10 +170,12 @@ export const photoService = {
       const items = photos.slice(start, end);
       const totalPages = Math.ceil(photos.length / pageSize);
       
-      return {
+      const result = {
         items,
         totalPages
       };
+      setPhotoPageCache(page, pageSize, thumbnailDir, result);
+      return result;
     }
   },
 
@@ -177,6 +189,7 @@ export const photoService = {
     try {
       if (window.electronAPI?.updatePhoto) {
         await window.electronAPI.updatePhoto(photo.filePath, updates);
+        clearPhotoPageCache();
         return true;
       } else {
         // 本地模式：更新本地存储中的照片
@@ -185,6 +198,7 @@ export const photoService = {
           p.id === photo.id ? { ...p, ...updates } : p
         );
         saveLocalPhotos(updatedPhotos);
+        clearPhotoPageCache();
         return true;
       }
     } catch (error) {
@@ -202,12 +216,14 @@ export const photoService = {
     try {
       if (window.electronAPI?.deletePhoto) {
         await window.electronAPI.deletePhoto(photoId);
+        clearPhotoPageCache();
         return true;
       } else {
         // 本地模式：从本地存储中删除照片
         const photos = getLocalPhotos();
         const updatedPhotos = photos.filter(p => p.id !== photoId);
         saveLocalPhotos(updatedPhotos);
+        clearPhotoPageCache();
         return true;
       }
     } catch (error) {

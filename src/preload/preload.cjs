@@ -71,7 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 扫描文件夹
   scanFolder: (folderPath, watch = true, allowedFormats = null) =>
     ipcRenderer.invoke('scanDirectory', folderPath, allowedFormats).catch(() =>
-      ipcRenderer.invoke('library:scan-folder', { folderPath, watch })
+      ipcRenderer.invoke('library:scan-folder', { folderPath, watch, allowedFormats })
     ),
 
   // 扫描文件夹获取未添加的文件列表
@@ -99,6 +99,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getScanProgress: (folderPath) =>
     ipcRenderer.invoke('getScanProgress').catch(() =>
       ipcRenderer.invoke('library:get-scan-progress', folderPath)
+    ),
+  cancelScan: () =>
+    ipcRenderer.invoke('cancelScan').catch(() =>
+      ipcRenderer.invoke('library:cancel-scan')
     ),
 
   // 重新同步库
@@ -169,19 +173,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   
   // 导入文件夹
-  importFolder: ({ folderPath, targetFolderId, allowedFormats = null }) => {
+  importFolder: async ({ folderPath, targetFolderId, allowedFormats = null }) => {
     console.log('[Preload] importFolder called with:', folderPath, targetFolderId, allowedFormats);
-    return ipcRenderer.invoke('scanDirectory', folderPath, allowedFormats).then(() => {
-      return {
-        name: path.basename(folderPath),
-        path: folderPath,
-        type: 'physical',
-        parentId: targetFolderId || null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        photoCount: 0
-      };
+    const parentId = targetFolderId && !Number.isNaN(Number(targetFolderId)) ? Number(targetFolderId) : null;
+    const folderPayload = {
+      name: path.basename(folderPath),
+      path: folderPath,
+      type: 'physical',
+      parentId,
+      ownerId: 'local',
+    };
+
+    const createdFolder = await ipcRenderer.invoke('library:create-folder-v2', folderPayload).catch(() =>
+      ipcRenderer.invoke('library:create-folder', { folder: folderPayload })
+    );
+
+    const scanResult = await ipcRenderer.invoke('library:scan-folder', {
+      folderPath,
+      watch: true,
+      allowedFormats,
     });
+    const finalProgress = await ipcRenderer.invoke('getScanProgress').catch(() =>
+      ipcRenderer.invoke('library:get-scan-progress')
+    );
+
+    if (createdFolder?.id) {
+      await ipcRenderer.invoke('library:assign-folder-by-path', {
+        folderId: createdFolder.id,
+        folderPath,
+        includeSubfolders: true,
+      });
+    }
+
+    return {
+      folder: createdFolder,
+      ...(scanResult || {}),
+      finalProgress: finalProgress || null,
+    };
   },
   
   // 导入文件

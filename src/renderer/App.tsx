@@ -26,7 +26,8 @@ import {
   Share2,
   Download,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  ListTodo
 } from 'lucide-react';
 
 import { cn } from './lib/utils';
@@ -55,7 +56,7 @@ import { CustomDatePicker } from './components/common/CustomDatePicker';
 // Modals
 import { ConfirmModal } from './components/modals/ConfirmModal';
 import { PhotoDetailModal } from './components/modals/PhotoDetailModal';
-import { ImportModal } from './components/modals/ImportModal';
+import { ImportModal, ImportQueuePayload } from './components/modals/ImportModal';
 import { SyncFolderModal } from './components/modals/SyncFolderModal';
 import { FolderInfoModal } from './components/modals/FolderInfoModal';
 import { RecipeExportModal } from './components/modals/RecipeExportModal';
@@ -77,6 +78,24 @@ interface User {
   displayName: string;
   photoURL: string;
 }
+
+type ImportTaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+
+interface ImportTask {
+  id: string;
+  name: string;
+  createdAt: number;
+  status: ImportTaskStatus;
+  progress: number;
+  scanned: number;
+  success: number;
+  failed: number;
+  skipped: number;
+  error?: string | null;
+  payload: ImportQueuePayload;
+}
+
+const IMPORT_TASKS_STORAGE_KEY = 'fuji_import_tasks_v1';
 
 const ROOT_PARENT_ID = '-1';
 
@@ -178,6 +197,8 @@ export default function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportPhoto, setExportPhoto] = useState<Photo | null>(null);
   const [initialExportTemplate, setInitialExportTemplate] = useState('minimal');
+  const [importTasks, setImportTasks] = useState<ImportTask[]>([]);
+  const [showImportTasks, setShowImportTasks] = useState(false);
   
   // UI states
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -236,11 +257,253 @@ export default function App() {
   const { 
     photos: timelinePhotos, 
     loading: timelineLoading 
-  } = useTimeline();
+  } = useTimeline(activeView === 'timeline');
 
 
 
   // 不再使用模拟数据，依赖usePhotoLibrary钩子从服务层获取数据
+
+  const queueRunningRef = useRef(false);
+  const cancelRequestedRef = useRef<Set<string>>(new Set());
+
+  const queueCount = importTasks.filter(t => t.status === 'queued').length;
+  const runningCount = importTasks.filter(t => t.status === 'running').length;
+
+  const updateImportTask = useCallback((id: string, patch: Partial<ImportTask>) => {
+    setImportTasks(prev => prev.map(task => task.id === id ? { ...task, ...patch } : task));
+  }, []);
+
+  const pickScanStats = (obj: any) => {
+    const source = obj?.finalProgress || obj || {};
+    const scanned = Number(source.scanned || 0);
+    const success = Number(source.indexed || source.success || 0);
+    const failed = Number(source.failed || 0);
+    const skipped = Number(source.skipped || 0);
+    return { scanned, success, failed, skipped };
+  };
+
+  const handleQueueImport = useCallback((payload: ImportQueuePayload) => {
+    const id = `import-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const name = payload.type === 'folders'
+      ? (payload.folderName || payload.folderPath || '文件夹导入')
+      : `${payload.filePaths?.length || 0} 张照片`;
+    setImportTasks(prev => [
+      ...prev,
+      {
+        id,
+        name,
+        createdAt: Date.now(),
+        status: 'queued',
+        progress: 0,
+        scanned: 0,
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        error: null,
+        payload,
+      },
+    ]);
+    setShowImportTasks(true);
+  }, []);
+
+  const handleCancelImportTask = useCallback(async (task: ImportTask) => {
+    cancelRequestedRef.current.add(task.id);
+    if (task.status === 'queued') {
+      updateImportTask(task.id, {
+        status: 'cancelled',
+        progress: 100,
+        error: '已取消',
+      });
+      return;
+    }
+    if (task.status === 'running' && task.payload.type === 'folders' && window.electronAPI?.cancelScan) {
+      try {
+        await window.electronAPI.cancelScan();
+      } catch {
+      }
+    }
+  }, [updateImportTask]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(IMPORT_TASKS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setImportTasks(parsed.map((item: any) => {
+          if (item?.status === 'running' || item?.status === 'queued') {
+            return {
+              ...item,
+              status: 'error',
+              error: item?.error || '应用重启导致任务中断',
+              progress: 100,
+            };
+          }
+          return item;
+        }));
+      }
+    } catch {
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(IMPORT_TASKS_STORAGE_KEY, JSON.stringify(importTasks));
+    } catch {
+    }
+  }, [importTasks]);
+
+  useEffect(() => {
+    const runNext = async () => {
+      if (queueRunningRef.current) return;
+      const next = importTasks.find(task => task.status === 'queued');
+      if (!next || !window.electronAPI) return;
+
+      queueRunningRef.current = true;
+      updateImportTask(next.id, { status: 'running', progress: 1, error: null });
+
+      try {
+        if (cancelRequestedRef.current.has(next.id)) {
+          updateImportTask(next.id, { status: 'cancelled', progress: 100, error: '已取消' });
+          return;
+        }
+
+        if (next.payload.type === 'files') {
+          const files = next.payload.filePaths || [];
+          const total = files.length;
+          let success = 0;
+          let failed = 0;
+
+          for (let i = 0; i < total; i += 1) {
+            if (cancelRequestedRef.current.has(next.id)) {
+              updateImportTask(next.id, {
+                status: 'cancelled',
+                progress: 100,
+                scanned: total,
+                success,
+                failed,
+                skipped: Math.max(0, total - (success + failed)),
+                error: '已取消',
+              });
+              break;
+            }
+            try {
+              await window.electronAPI.importFiles({
+                files: [files[i]],
+                targetFolderId: next.payload.targetFolderId,
+              });
+              success += 1;
+            } catch {
+              failed += 1;
+            }
+            const progress = total > 0 ? Math.min(99, Math.round(((i + 1) / total) * 100)) : 100;
+            updateImportTask(next.id, {
+              progress,
+              scanned: total,
+              success,
+              failed,
+              skipped: 0,
+            });
+          }
+
+          if (!cancelRequestedRef.current.has(next.id)) {
+            updateImportTask(next.id, {
+              status: 'done',
+              progress: 100,
+              scanned: total,
+              success,
+              failed,
+              skipped: 0,
+            });
+          }
+        } else {
+          const folderPath = next.payload.folderPath || '';
+          let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+          if (folderPath && window.electronAPI.getScanProgress) {
+            pollTimer = setInterval(async () => {
+              try {
+                const p = await window.electronAPI.getScanProgress(folderPath);
+                const { scanned, success, failed, skipped } = pickScanStats(p);
+                const processed = success + failed + skipped;
+                const progress = scanned > 0 ? Math.min(99, Math.round((processed / scanned) * 100)) : 1;
+                updateImportTask(next.id, { scanned, success, failed, skipped, progress });
+              } catch {
+              }
+            }, 400);
+          }
+
+          try {
+            const result = await window.electronAPI.importFolder({
+              folderPath,
+              targetFolderId: next.payload.targetFolderId,
+              allowedFormats: next.payload.allowedFormats,
+            });
+            if (cancelRequestedRef.current.has(next.id)) {
+              updateImportTask(next.id, {
+                status: 'cancelled',
+                progress: 100,
+                error: '已取消',
+              });
+            } else {
+              const { scanned, success, failed, skipped } = pickScanStats(result);
+              updateImportTask(next.id, {
+                status: 'done',
+                progress: 100,
+                scanned,
+                success,
+                failed,
+                skipped,
+              });
+            }
+          } finally {
+            if (pollTimer) clearInterval(pollTimer);
+          }
+        }
+
+        if (!cancelRequestedRef.current.has(next.id) && window.electronAPI.triggerLibraryUpdate) {
+          await window.electronAPI.triggerLibraryUpdate();
+        }
+        if (!cancelRequestedRef.current.has(next.id)) {
+          setPhotoPage(1);
+          setHasMorePhotos(true);
+          await reload();
+        }
+      } catch (error: any) {
+        if (cancelRequestedRef.current.has(next.id)) {
+          updateImportTask(next.id, {
+            status: 'cancelled',
+            progress: 100,
+            error: '已取消',
+          });
+        } else {
+          updateImportTask(next.id, {
+            status: 'error',
+            progress: 100,
+            error: error?.message || String(error),
+          });
+        }
+      } finally {
+        cancelRequestedRef.current.delete(next.id);
+        queueRunningRef.current = false;
+      }
+    };
+
+    void runNext();
+  }, [importTasks, reload, updateImportTask]);
+
+  useEffect(() => {
+    const hasRunningOrQueued = importTasks.some(t => t.status === 'running' || t.status === 'queued');
+    if (!hasRunningOrQueued && showImportTasks) {
+      setShowImportTasks(false);
+    }
+    setImportTasks(prev => {
+      const next = hasRunningOrQueued
+        ? prev.filter(t => t.status !== 'done' && t.status !== 'cancelled')
+        : prev.filter(t => t.status === 'error');
+      return next.length === prev.length ? prev : next;
+    });
+  }, [importTasks, showImportTasks]);
 
   // Theme management
   useEffect(() => {
@@ -284,10 +547,9 @@ export default function App() {
   // Filtered photos
   const activeFolder = folders.find((f) => f.id === activeFolderId) || null;
   const filteredPhotos = useMemo(() => {
-    console.log('[App] Filtering photos, selectedTags:', selectedTags);
-    photos.slice(0, 3).forEach(p => {
-      console.log('[App] Photo:', p.fileName, 'tags:', JSON.stringify(p.tags), 'type:', typeof p.tags, 'isArray:', Array.isArray(p.tags));
-    });
+    if (activeView !== 'photos' && activeView !== 'favorites') {
+      return [];
+    }
     return photos.filter(p => {
       const matchesSearch = (p.fileName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
                            p.cameraModel?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -306,11 +568,13 @@ export default function App() {
     }).sort((a, b) => {
       let comparison = 0;
       if (sortBy === 'name') {
-        comparison = a.fileName.localeCompare(b.fileName);
+        comparison = (a.fileName || '').localeCompare(b.fileName || '', undefined, { numeric: true, sensitivity: 'base' });
       } else if (sortBy === 'date') {
-        comparison = new Date(a.dateTime || '').getTime() - new Date(b.dateTime || '').getTime();
+        const ta = new Date(a.dateTime || '').getTime();
+        const tb = new Date(b.dateTime || '').getTime();
+        comparison = (Number.isNaN(ta) ? 0 : ta) - (Number.isNaN(tb) ? 0 : tb);
       } else if (sortBy === 'size') {
-        comparison = parseInt(a.size || '0') - parseInt(b.size || '0');
+        comparison = Number(a.size || 0) - Number(b.size || 0);
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
@@ -772,6 +1036,74 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col relative overflow-hidden bg-[var(--bg-primary)]">
+        <div className="absolute top-4 right-6 z-20">
+          <button
+            onClick={() => setShowImportTasks(v => !v)}
+            className="relative p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)]/85 backdrop-blur-xl text-slate-500 hover:text-blue-500 hover:border-blue-500/40 transition-all"
+            title="导入任务"
+          >
+            <ListTodo className="w-4 h-4" />
+            {(queueCount + runningCount) > 0 && (
+              <span className="absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-blue-500 text-white text-[10px] font-black flex items-center justify-center">
+                {queueCount + runningCount}
+              </span>
+            )}
+          </button>
+          <AnimatePresence>
+            {showImportTasks && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mt-3 w-[360px] max-h-[420px] overflow-y-auto rounded-2xl border border-[var(--border-color)] bg-[var(--bg-primary)]/95 backdrop-blur-2xl shadow-2xl p-3 space-y-2"
+              >
+                {importTasks.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400">暂无导入任务</div>
+                ) : (
+                  importTasks.slice().reverse().map(task => (
+                    <div key={task.id} className="rounded-xl border border-[var(--border-color)] p-3 bg-slate-500/5">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-bold truncate pr-2">{task.name}</div>
+                        <div className={cn(
+                          "text-[10px] font-black uppercase tracking-widest",
+                          task.status === 'running' ? "text-blue-500" :
+                          task.status === 'done' ? "text-green-500" :
+                          task.status === 'cancelled' ? "text-slate-400" :
+                          task.status === 'error' ? "text-red-500" : "text-slate-400"
+                        )}>
+                          {task.status}
+                        </div>
+                      </div>
+                      <div className="h-2 rounded-full bg-slate-500/10 overflow-hidden mb-2">
+                        <div
+                          className={cn(
+                            "h-full transition-all",
+                            task.status === 'error' ? "bg-red-500" : "bg-gradient-to-r from-blue-500 to-indigo-600"
+                          )}
+                          style={{ width: `${Math.max(0, Math.min(100, task.progress || 0))}%` }}
+                        />
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        成功 {task.success} · 失败 {task.failed} · 跳过 {task.skipped}
+                      </div>
+                      {(task.status === 'queued' || task.status === 'running') && (
+                        <div className="mt-2">
+                          <button
+                            onClick={() => void handleCancelImportTask(task)}
+                            className="text-[11px] font-bold text-red-500 hover:text-red-600"
+                          >
+                            取消任务
+                          </button>
+                        </div>
+                      )}
+                      {task.error && <div className="text-[11px] text-red-400 mt-1 truncate">{task.error}</div>}
+                    </div>
+                  ))
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
         {/* Header / Toolbar - Conditionally rendered */}
         {(activeView === 'photos' || activeView === 'favorites') && (
           <header className="h-20 border-b border-[var(--border-color)] flex items-center justify-between px-8 bg-[var(--bg-primary)]/80 backdrop-blur-xl sticky top-0 z-10">
@@ -1273,6 +1605,7 @@ export default function App() {
               setHasMorePhotos(true);
               await reload();
             }}
+            onQueueImport={handleQueueImport}
           />
         )}
         {isSyncModalOpen && syncFolderId && (

@@ -2,13 +2,14 @@
  * 照片库自定义Hook
  * 用于管理照片库的状态和数据加载
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { photoService } from '../services/photoService';
 import { folderService } from '../services/folderService';
 import { tagService } from '../services/tagService';
 import { Photo, Folder, Tag } from '../types';
 import '../types/electronAPI';
 import { PLACEHOLDER_IMAGE } from '../constants/assets';
+import { clearPhotoPageCache } from '../services/cacheService';
 
 
 /**
@@ -31,6 +32,7 @@ export function usePhotoLibrary() {
     percent: 0,
     text: '准备中...'
   });
+  const loadTokenRef = useRef(0);
 
   const dedupeFolders = (items: Folder[]) => {
     const seen = new Set<string>();
@@ -40,78 +42,6 @@ export function usePhotoLibrary() {
       seen.add(key);
       return true;
     });
-  };
-
-  const toFileUrl = (inputPath: string): string => {
-    const normalized = (inputPath || '').replace(/\\/g, '/');
-    if (!normalized) return '';
-    if (normalized.startsWith('file://')) return normalized;
-    if (/^[A-Za-z]:\//.test(normalized)) {
-      return `file:///${encodeURI(normalized)}`;
-    }
-    if (normalized.startsWith('/')) {
-      return `file://${encodeURI(normalized)}`;
-    }
-    return `file:///${encodeURI(normalized)}`;
-  };
-
-  const preloadThumbnails = async (inputPhotos: Photo[], concurrency = 6): Promise<Photo[]> => {
-    if (!window.electronAPI?.getThumbnail || inputPhotos.length === 0) return inputPhotos;
-
-    const total = inputPhotos.length;
-    let completed = 0;
-    let failed = 0;
-    let pointer = 0;
-    const output = [...inputPhotos];
-
-    setBootProgress({
-      phase: 'thumbnails',
-      total,
-      completed: 0,
-      failed: 0,
-      percent: 0,
-      text: `正在预加载缩略图 (0/${total})`
-    });
-
-    const worker = async () => {
-      while (true) {
-        const index = pointer;
-        pointer += 1;
-        if (index >= total) break;
-
-        const photo = output[index];
-        try {
-          const res = await window.electronAPI.getThumbnail(photo.filePath, photo.hash);
-          if (res?.success && res.thumbnailPath) {
-            const nextThumb = toFileUrl(res.thumbnailPath);
-            output[index] = {
-              ...photo,
-              thumbnailUrl: nextThumb,
-              previewUrl: photo.fileName.toLowerCase().endsWith('.raf') ? nextThumb : photo.previewUrl
-            };
-          } else {
-            failed += 1;
-          }
-        } catch {
-          failed += 1;
-        } finally {
-          completed += 1;
-          const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
-          setBootProgress({
-            phase: 'thumbnails',
-            total,
-            completed,
-            failed,
-            percent,
-            text: `正在预加载缩略图 (${completed}/${total})`
-          });
-        }
-      }
-    };
-
-    const workers = Array.from({ length: Math.max(1, Math.min(concurrency, total)) }, () => worker());
-    await Promise.all(workers);
-    return output;
   };
 
   /**
@@ -162,10 +92,13 @@ export function usePhotoLibrary() {
    * 包括照片、文件夹和标签
    */
   const loadAll = async () => {
+    const token = Date.now();
+    loadTokenRef.current = token;
     setLoading(true);
     setError(null);
     try {
       if (window.electronAPI) {
+        clearPhotoPageCache();
         setBootProgress({
           phase: 'bootstrap',
           total: 4,
@@ -186,12 +119,14 @@ export function usePhotoLibrary() {
           tagService.loadAllTags()
         ]);
         
-        // 加载第一页照片
-        const photosData = await photoService.loadPhotosPage(1, 120, thumbDir);
+        // 首屏快速加载：仅加载第一页
+        const firstPage = await photoService.loadPhotosPage(1, 120, thumbDir);
+        const totalPages = Math.max(1, Number(firstPage.totalPages || 1));
+
         setBootProgress(prev => ({ ...prev, completed: 3, percent: 75, text: '整理照片数据...' }));
         
         // 确保照片有有效的thumbnailUrl
-        const processedPhotos = photosData.items.map(photo => {
+        const processedPhotos = firstPage.items.map(photo => {
           if (!photo.thumbnailUrl || photo.thumbnailUrl === 'file:///') {
             return {
               ...photo,
@@ -202,9 +137,8 @@ export function usePhotoLibrary() {
           return photo;
         });
 
-        const hydratedPhotos = await preloadThumbnails(processedPhotos, 6);
-        
-        setPhotos(hydratedPhotos);
+        if (loadTokenRef.current !== token) return;
+        setPhotos(processedPhotos);
         setFolders(dedupeFolders(foldersData));
         setTags(tagsData);
         setBootProgress({
@@ -215,6 +149,27 @@ export function usePhotoLibrary() {
           percent: 100,
           text: '加载完成'
         });
+
+        // 后台分批加载剩余分页，避免阻塞首屏
+        if (totalPages > 1) {
+          const BATCH_PAGES = 2;
+          for (let page = 2; page <= totalPages; page += BATCH_PAGES) {
+            if (loadTokenRef.current !== token) break;
+            const upper = Math.min(totalPages, page + BATCH_PAGES - 1);
+            const pagePromises: Promise<{ items: Photo[]; totalPages: number }>[] = [];
+            for (let p = page; p <= upper; p += 1) {
+              pagePromises.push(photoService.loadPhotosPage(p, 120, thumbDir));
+            }
+            const chunk = await Promise.all(pagePromises);
+            if (loadTokenRef.current !== token) break;
+            const merged = chunk.flatMap(item => item.items);
+            if (merged.length > 0) {
+              setPhotos(prev => [...prev, ...merged]);
+            }
+            // 主动让出主线程，避免长任务卡顿
+            await new Promise(resolve => setTimeout(resolve, 16));
+          }
+        }
       } else {
         setPhotos([
           {
@@ -288,7 +243,9 @@ export function usePhotoLibrary() {
         }
       ]);
     } finally {
-      setLoading(false);
+      if (loadTokenRef.current === token) {
+        setLoading(false);
+      }
     }
   };
 
